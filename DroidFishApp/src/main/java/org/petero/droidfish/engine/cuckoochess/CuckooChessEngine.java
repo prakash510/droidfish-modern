@@ -18,7 +18,7 @@
 
 package org.petero.droidfish.engine.cuckoochess;
 
-import android.os.Environment;
+import org.petero.droidfish.StorageProvider;
 import chess.ChessParseError;
 import chess.ComputerPlayer;
 import chess.Move;
@@ -69,8 +69,7 @@ public class CuckooChessEngine extends UCIEngineBase {
 
     @Override
     protected File getOptionsFile() {
-        File extDir = Environment.getExternalStorageDirectory();
-        return new File(extDir, "/DroidFish/uci/cuckoochess.ini");
+        return new File(StorageProvider.getEngineDir(), "cuckoochess.ini");
     }
 
     @Override

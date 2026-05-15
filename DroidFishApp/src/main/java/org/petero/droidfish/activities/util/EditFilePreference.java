@@ -23,7 +23,8 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Environment;
+import android.os.Build;
+import org.petero.droidfish.StorageProvider;
 import android.preference.EditTextPreference;
 import android.util.AttributeSet;
 import android.view.View;
@@ -107,13 +108,47 @@ public class EditFilePreference extends EditTextPreference {
         String currentPath = getText();
         if (matchPattern(currentPath))
             currentPath = "";
-        String sep = File.separator;
-        if (currentPath.isEmpty() || !currentPath.contains(sep)) {
-            String extDir = Environment.getExternalStorageDirectory().getAbsolutePath();
-            String newPath = extDir + sep + defaultPath;
+        if (currentPath.isEmpty() || !currentPath.contains(File.separator)) {
+            String basePath = new File(StorageProvider.getBaseDir(), defaultPath.replace("DroidFish/", "")).getAbsolutePath();
             if (!currentPath.isEmpty())
-                newPath += sep + currentPath;
-            currentPath = newPath;
+                basePath = basePath + File.separator + currentPath;
+            currentPath = basePath;
+        }
+
+        Context context = getContext();
+        if (!(context instanceof Preferences))
+            return;
+        Preferences prefs = (Preferences) context;
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            Intent i;
+            if (pickDirectory) {
+                i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            } else {
+                i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+            }
+            try {
+                prefs.runActivity(i, (resultCode, data) -> {
+                    if (resultCode == Activity.RESULT_OK && data != null) {
+                        Uri uri = data.getData();
+                        if (uri != null) {
+                            if (pickDirectory) {
+                                prefs.getContentResolver().takePersistableUriPermission(uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                setText(uri.toString());
+                            } else {
+                                String pathName = FileUtil.getFilePathFromUri(uri);
+                                if (pathName != null)
+                                    setText(pathName);
+                            }
+                        }
+                    }
+                });
+            } catch (ActivityNotFoundException ignore) {
+            }
+            return;
         }
 
         String title = getContext().getString(pickDirectory ? R.string.select_directory
@@ -122,17 +157,13 @@ public class EditFilePreference extends EditTextPreference {
         i.setData(Uri.fromFile(new File(currentPath)));
         i.putExtra("org.openintents.extra.TITLE", title);
         try {
-            Context context = getContext();
-            if (context instanceof Preferences) {
-                Preferences prefs = ((Preferences)context);
-                prefs.runActivity(i, (resultCode, data) -> {
-                    if (resultCode == Activity.RESULT_OK) {
-                        String pathName = FileUtil.getFilePathFromUri(data.getData());
-                        if (pathName != null)
-                            setText(pathName);
-                    }
-                });
-            }
+            prefs.runActivity(i, (resultCode, data) -> {
+                if (resultCode == Activity.RESULT_OK) {
+                    String pathName = FileUtil.getFilePathFromUri(data.getData());
+                    if (pathName != null)
+                        setText(pathName);
+                }
+            });
         } catch (ActivityNotFoundException ignore) {
         }
     }

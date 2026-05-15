@@ -33,8 +33,8 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.app.Fragment;
-import android.app.ListActivity;
 import android.app.LoaderManager;
+import androidx.appcompat.app.AppCompatActivity;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.CursorLoader;
@@ -54,7 +54,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class LoadScid extends ListActivity {
+public class LoadScid extends AppCompatActivity {
     private static final class GameInfo {
         String summary = "";
         int gameId = -1;
@@ -234,8 +234,8 @@ public class LoadScid extends ListActivity {
                 return view;
             }
         };
-        setListAdapter(aa);
-        ListView lv = getListView();
+        ListView lv = findViewById(android.R.id.list);
+        lv.setAdapter(aa);
         Util.overrideViewAttribs(lv);
         lv.setSelectionFromTop(defaultItem, 0);
         lv.setFastScrollEnabled(true);

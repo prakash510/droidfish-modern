@@ -19,6 +19,7 @@
 package org.petero.droidfish;
 
 import android.os.Handler;
+import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -39,7 +40,7 @@ public class ChessBoardPlayListener implements View.OnTouchListener {
     private float scrollY = 0;
     private float prevX = 0;
     private float prevY = 0;
-    private Handler handler = new Handler();
+    private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable runnable = new Runnable() {
         public void run() {
             pending = false;

@@ -83,13 +83,28 @@ public final class Util {
     /** Enable/disable full screen mode for an activity. */
     public static void setFullScreenMode(Activity a, SharedPreferences settings) {
         boolean fullScreenMode = settings.getBoolean("fullScreenMode", false);
-        WindowManager.LayoutParams attrs = a.getWindow().getAttributes();
-        if (fullScreenMode) {
-            attrs.flags |= WindowManager.LayoutParams.FLAG_FULLSCREEN;
+        if (Build.VERSION.SDK_INT >= 30) {
+            // Force DecorView creation before requesting InsetsController
+            a.getWindow().getDecorView();
+            android.view.WindowInsetsController wic = a.getWindow().getInsetsController();
+            if (wic != null) {
+                if (fullScreenMode) {
+                    wic.hide(android.view.WindowInsets.Type.statusBars());
+                    wic.setSystemBarsBehavior(
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    wic.show(android.view.WindowInsets.Type.statusBars());
+                }
+            }
         } else {
-            attrs.flags &= (~WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            WindowManager.LayoutParams attrs = a.getWindow().getAttributes();
+            if (fullScreenMode) {
+                attrs.flags |= WindowManager.LayoutParams.FLAG_FULLSCREEN;
+            } else {
+                attrs.flags &= (~WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            }
+            a.getWindow().setAttributes(attrs);
         }
-        a.getWindow().setAttributes(attrs);
     }
 
     /** Change foreground/background color in a view. */

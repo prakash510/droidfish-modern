@@ -50,6 +50,8 @@ import org.petero.droidfish.activities.Preferences;
 import org.petero.droidfish.book.BookOptions;
 import org.petero.droidfish.engine.DroidComputerPlayer.EloData;
 import org.petero.droidfish.engine.EngineUtil;
+import org.petero.droidfish.engine.UCIEngine;
+import org.petero.droidfish.engine.UCIEngineBase;
 import org.petero.droidfish.engine.UCIOptions;
 import org.petero.droidfish.gamelogic.DroidChessController;
 import org.petero.droidfish.gamelogic.ChessParseError;
@@ -59,11 +61,19 @@ import org.petero.droidfish.gamelogic.Position;
 import org.petero.droidfish.gamelogic.TextIO;
 import org.petero.droidfish.gamelogic.GameTree.Node;
 import org.petero.droidfish.gamelogic.TimeControlData;
+import org.petero.droidfish.enginematch.EngineMatchConfig;
+import org.petero.droidfish.enginematch.EngineMatchController;
+import org.petero.droidfish.enginematch.EngineMatchListener;
+import org.petero.droidfish.enginematch.EngineMatchResult;
 import org.petero.droidfish.tb.Probe;
 import org.petero.droidfish.tb.ProbeResult;
+import org.petero.droidfish.view.EvalBarView;
 import org.petero.droidfish.view.MoveListView;
 import org.petero.droidfish.view.ChessBoard.SquareDecoration;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.fragment.app.DialogFragment;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import tourguide.tourguide.Overlay;
@@ -72,6 +82,7 @@ import tourguide.tourguide.Sequence;
 import tourguide.tourguide.ToolTip;
 import tourguide.tourguide.TourGuide;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
 import com.kalab.chess.enginesupport.ChessEngine;
@@ -79,8 +90,8 @@ import com.kalab.chess.enginesupport.ChessEngineResolver;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
 import android.app.Dialog;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -111,9 +122,8 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
-import android.os.StrictMode;
+import android.os.Looper;
 import android.os.Vibrator;
 import android.preference.PreferenceManager;
 import androidx.core.app.ActivityCompat;
@@ -134,6 +144,7 @@ import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.View.OnClickListener;
 import android.view.View.OnTouchListener;
+import android.os.PowerManager;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.ArrayAdapter;
@@ -141,6 +152,7 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView.ScaleType;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -150,9 +162,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 @SuppressLint("ClickableViewAccessibility")
-public class DroidFish extends Activity
+public class DroidFish extends AppCompatActivity
                        implements GUIInterface,
-                                  ActivityCompat.OnRequestPermissionsResultCallback {
+                                  ActivityCompat.OnRequestPermissionsResultCallback,
+                                  DialogHost {
     private ChessBoardPlay cb;
     DroidChessController ctrl = null;
     private boolean mShowThinking;
@@ -163,6 +176,9 @@ public class DroidFish extends Activity
     private boolean mShowBookHints;
     private int mEcoHints;
     private int maxNumArrows;
+    private boolean mEvalBarHvE;
+    private String mEvalBarAnalysis;
+    private EvalBarView evalBar;
     GameMode gameMode;
     private boolean mPonderMode;
     private int timeControl;
@@ -182,6 +198,7 @@ public class DroidFish extends Activity
     private View buttons;
     private ImageButton custom1Button, custom2Button, custom3Button;
     private ImageButton modeButton, undoButton, redoButton;
+    private ImageButton adjudicateButton, stopMatchButton;
     private ButtonActions custom1ButtonActions, custom2ButtonActions, custom3ButtonActions;
     private TextView whiteTitleText, blackTitleText, engineTitleText;
     private View secondTitleLine;
@@ -191,6 +208,10 @@ public class DroidFish extends Activity
     private DrawerLayout drawerLayout;
     private ListView leftDrawer;
     private ListView rightDrawer;
+
+    private EngineMatchController engineMatchController;
+    private TextView matchScoreLine;
+    private StringBuilder matchMoveText;
 
     private SharedPreferences settings;
     private ObjectCache cache;
@@ -230,13 +251,13 @@ public class DroidFish extends Activity
     /** State of WRITE_EXTERNAL_STORAGE permission. */
     private PermissionState storagePermission = PermissionState.UNKNOWN;
 
-    private static String bookDir = "DroidFish/book";
-    private static String pgnDir = "DroidFish/pgn";
-    private static String fenDir = "DroidFish/epd";
-    private static String engineDir = "DroidFish/uci";
-    private static String engineLogDir = "DroidFish/uci/logs";
-    private static String gtbDefaultDir = "DroidFish/gtb";
-    private static String rtbDefaultDir = "DroidFish/rtb";
+    private static String bookDir = "book";
+    private static String pgnDir = "pgn";
+    private static String fenDir = "epd";
+    private static String engineDir = "uci";
+    private static String engineLogDir = "uci/logs";
+    private static String gtbDefaultDir = "gtb";
+    private static String rtbDefaultDir = "rtb";
     private BookOptions bookOptions = new BookOptions();
     private PGNOptions pgnOptions = new PGNOptions();
     private EngineOptions engineOptions = new EngineOptions();
@@ -516,9 +537,9 @@ public class DroidFish extends Activity
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        registerSAFLaunchers();
 
-        StrictMode.VmPolicy.Builder builder = new StrictMode.VmPolicy.Builder();
-        StrictMode.setVmPolicy(builder.build());
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         String intentPgnOrFen = null;
         String intentFilename = null;
@@ -528,10 +549,14 @@ public class DroidFish extends Activity
             intentFilename = pair.second;
         }
 
+        StorageMigrationHelper.migrateIfNeeded(this);
         createDirectories();
 
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
         settings = PreferenceManager.getDefaultSharedPreferences(this);
+        if (!settings.contains("color_darkSquare")) {
+            ColorTheme.instance().setTheme(settings, ColorTheme.getDefaultThemeIndex());
+        }
         cache = new ObjectCache();
 
         setWakeLock(false);
@@ -708,31 +733,24 @@ public class DroidFish extends Activity
         }
     }
 
-    /** Create directory structure on SD card. */
+    /** Create directory structure for app storage. */
     private void createDirectories() {
-        if (storagePermission == PermissionState.UNKNOWN) {
-            String extStorage = Manifest.permission.WRITE_EXTERNAL_STORAGE;
-            if (ContextCompat.checkSelfPermission(this, extStorage) == 
-                    PackageManager.PERMISSION_GRANTED) {
-                storagePermission = PermissionState.GRANTED;
-            } else {
-                storagePermission = PermissionState.REQUESTED;
-                ActivityCompat.requestPermissions(this, new String[]{extStorage}, 0);
+        if (Build.VERSION.SDK_INT < 30) {
+            if (storagePermission == PermissionState.UNKNOWN) {
+                String extStorage = Manifest.permission.WRITE_EXTERNAL_STORAGE;
+                if (ContextCompat.checkSelfPermission(this, extStorage) ==
+                        PackageManager.PERMISSION_GRANTED) {
+                    storagePermission = PermissionState.GRANTED;
+                } else {
+                    storagePermission = PermissionState.REQUESTED;
+                    ActivityCompat.requestPermissions(this, new String[]{extStorage}, 0);
+                }
             }
+            if (storagePermission != PermissionState.GRANTED)
+                return;
         }
-        if (storagePermission != PermissionState.GRANTED)
-            return;
-
-        File extDir = Environment.getExternalStorageDirectory();
-        String sep = File.separator;
-        new File(extDir + sep + bookDir).mkdirs();
-        new File(extDir + sep + pgnDir).mkdirs();
-        new File(extDir + sep + fenDir).mkdirs();
-        new File(extDir + sep + engineDir).mkdirs();
-        new File(extDir + sep + engineDir + sep + EngineUtil.openExchangeDir).mkdirs();
-        new File(extDir + sep + engineLogDir).mkdirs();
-        new File(extDir + sep + gtbDefaultDir).mkdirs();
-        new File(extDir + sep + rtbDefaultDir).mkdirs();
+        StorageProvider.createDirectories();
+        new File(StorageProvider.getEngineDir(), EngineUtil.openExchangeDir).mkdirs();
     }
 
     @Override
@@ -746,8 +764,10 @@ public class DroidFish extends Activity
         createDirectories();
     }
 
-    /** Return true if the WRITE_EXTERNAL_STORAGE permission has been granted. */
+    /** Return true if file storage is available for the app. */
     private boolean storageAvailable() {
+        if (Build.VERSION.SDK_INT >= 30)
+            return true;
         return storagePermission == PermissionState.GRANTED;
     }
 
@@ -791,9 +811,7 @@ public class DroidFish extends Activity
                 if ((filename == null) &&
                     ("content".equals(scheme) || "file".equals(scheme))) {
                     ContentResolver resolver = getContentResolver();
-                    String sep = File.separator;
-                    String fn = Environment.getExternalStorageDirectory() + sep +
-                                pgnDir + sep + ".sharedfile.pgn";
+                    String fn = new File(StorageProvider.getPgnDir(), ".sharedfile.pgn").getAbsolutePath();
                     try (InputStream in = resolver.openInputStream(data)) {
                         if (in == null)
                             throw new IOException("No input stream");
@@ -907,6 +925,22 @@ public class DroidFish extends Activity
     private void initUI() {
         leftHanded = leftHandedView();
         setContentView(leftHanded ? R.layout.main_left_handed : R.layout.main);
+
+        View mainView = findViewById(R.id.main);
+        View leftContainer = findViewById(R.id.left_drawer_container);
+        View rightContainer = findViewById(R.id.right_drawer_container);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(
+                findViewById(R.id.drawer_layout), (v, windowInsets) -> {
+            androidx.core.graphics.Insets insets = windowInsets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            mainView.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+            if (leftContainer != null)
+                leftContainer.setPadding(0, insets.top, 0, insets.bottom);
+            if (rightContainer != null)
+                rightContainer.setPadding(0, insets.top, 0, insets.bottom);
+            return androidx.core.view.WindowInsetsCompat.CONSUMED;
+        });
+
         overrideViewAttribs();
 
         // title lines need to be regenerated every time due to layout changes (rotations)
@@ -967,6 +1001,8 @@ public class DroidFish extends Activity
         cb.setClickable(true);
         cb.setPgnOptions(pgnOptions);
 
+        evalBar = findViewById(R.id.eval_bar);
+
         ChessBoardPlayListener cbpListener = new ChessBoardPlayListener(this, cb);
         cb.setOnTouchListener(cbpListener);
 
@@ -990,7 +1026,7 @@ public class DroidFish extends Activity
         custom3ButtonActions.setImageButton(custom3Button, this);
 
         modeButton = findViewById(R.id.modeButton);
-        modeButton.setOnClickListener(v -> showDialog(GAME_MODE_DIALOG));
+        modeButton.setOnClickListener(v -> showDroidFishDialog(GAME_MODE_DIALOG));
         modeButton.setOnLongClickListener(v -> {
             drawerLayout.openDrawer(Gravity.LEFT);
             return true;
@@ -1013,6 +1049,19 @@ public class DroidFish extends Activity
             reShowDialog(GO_FORWARD_MENU_DIALOG);
             return true;
         });
+
+        adjudicateButton = findViewById(R.id.adjudicateButton);
+        adjudicateButton.setOnClickListener(v -> showAdjudicateDialog());
+
+        stopMatchButton = findViewById(R.id.stopMatchButton);
+        stopMatchButton.setOnClickListener(v -> {
+            if (engineMatchController != null && engineMatchController.isRunning()) {
+                engineMatchController.stopMatch();
+                setEngineMatchMode(false, false);
+            }
+        });
+
+        matchScoreLine = findViewById(R.id.match_score_line);
     }
 
     private static final int serializeVersion = 4;
@@ -1095,6 +1144,9 @@ public class DroidFish extends Activity
         mWhiteBasedScores = settings.getBoolean("whiteBasedScores", false);
         maxNumArrows = getIntSetting("thinkingArrows", 4);
         mShowBookHints = settings.getBoolean("bookHints", false);
+        mEvalBarHvE = settings.getBoolean("evalBarHvE", false);
+        mEvalBarAnalysis = settings.getString("evalBarAnalysis", "textOnly");
+        updateEvalBarVisibility();
         mEcoHints = getIntSetting("ecoHints", ECO_HINTS_AUTO);
 
         String engine = settings.getString("engine", "stockfish");
@@ -1157,10 +1209,8 @@ public class DroidFish extends Activity
         bookOptions.random = (settings.getInt("bookRandom", 500) - 500) * (3.0 / 500);
         setBookOptions();
 
-        File extDir = Environment.getExternalStorageDirectory();
-        String sep = File.separator;
         engineOptions.hashMB = getIntSetting("hashMB", 16);
-        engineOptions.unSafeHash = new File(extDir + sep + engineDir + sep + ".unsafehash").exists();
+        engineOptions.unSafeHash = new File(StorageProvider.getEngineDir(), ".unsafehash").exists();
         engineOptions.hints = settings.getBoolean("tbHints", false);
         engineOptions.hintsEdit = settings.getBoolean("tbHintsEdit", false);
         engineOptions.rootProbe = settings.getBoolean("tbRootProbe", true);
@@ -1168,15 +1218,15 @@ public class DroidFish extends Activity
 
         String gtbPath = settings.getString("gtbPath", "").trim();
         if (gtbPath.length() == 0)
-            gtbPath = extDir.getAbsolutePath() + sep + gtbDefaultDir;
+            gtbPath = StorageProvider.getGtbDefaultDir().getAbsolutePath();
         engineOptions.gtbPath = gtbPath;
         engineOptions.gtbPathNet = settings.getString("gtbPathNet", "").trim();
         String rtbPath = settings.getString("rtbPath", "").trim();
         if (rtbPath.length() == 0)
-            rtbPath = extDir.getAbsolutePath() + sep + rtbDefaultDir;
+            rtbPath = StorageProvider.getRtbDefaultDir().getAbsolutePath();
         engineOptions.rtbPath = rtbPath;
         engineOptions.rtbPathNet = settings.getString("rtbPathNet", "").trim();
-        engineOptions.workDir = Environment.getExternalStorageDirectory() + sep + engineLogDir;
+        engineOptions.workDir = StorageProvider.getEngineLogDir().getAbsolutePath();
 
         setEngineOptions(false);
         setEgtbHints(cb.getSelectedSquare());
@@ -1200,8 +1250,10 @@ public class DroidFish extends Activity
         pgnOptions.exp.clockInfo    = settings.getBoolean("exportTime",         false);
 
         ColorTheme.instance().readColors(settings);
+        BoardTheme.instance().readSettings(settings);
         PieceSet.instance().readPrefs(settings);
-        cb.setColors();
+        float brightness = settings.getFloat("boardBrightness", 1.0f);
+        cb.setBoardBrightness(brightness);
         overrideViewAttribs();
 
         gameTextListener.clear();
@@ -1384,8 +1436,7 @@ public class DroidFish extends Activity
         if (!options.filename.endsWith(":")) {
             String sep = File.separator;
             if (!options.filename.startsWith(sep)) {
-                File extDir = Environment.getExternalStorageDirectory();
-                options.filename = extDir.getAbsolutePath() + sep + bookDir + sep + options.filename;
+                options.filename = StorageProvider.getBookDir().getAbsolutePath() + sep + options.filename;
             }
         }
         ctrl.setBookOptions(options);
@@ -1451,6 +1502,7 @@ public class DroidFish extends Activity
 
     private enum DrawerItemId {
         NEW_GAME,
+        ENGINE_MATCH,
         SET_STRENGTH,
         EDIT_BOARD,
         SETTINGS,
@@ -1461,6 +1513,7 @@ public class DroidFish extends Activity
         SELECT_BOOK,
         MANAGE_ENGINES,
         SET_COLOR_THEME,
+        SET_BOARD_TEXTURE,
         ABOUT,
     }
 
@@ -1472,12 +1525,14 @@ public class DroidFish extends Activity
 
         final DrawerItem[] leftItems = new DrawerItem[] {
             new DrawerItem(DrawerItemId.NEW_GAME, R.string.option_new_game),
+            new DrawerItem(DrawerItemId.ENGINE_MATCH, R.string.option_engine_match),
             new DrawerItem(DrawerItemId.SET_STRENGTH, R.string.set_engine_strength),
             new DrawerItem(DrawerItemId.EDIT_BOARD, R.string.option_edit_board),
             new DrawerItem(DrawerItemId.FILE_MENU, R.string.option_file),
             new DrawerItem(DrawerItemId.SELECT_BOOK, R.string.option_select_book),
             new DrawerItem(DrawerItemId.MANAGE_ENGINES, R.string.option_manage_engines),
             new DrawerItem(DrawerItemId.SET_COLOR_THEME, R.string.option_color_theme),
+            new DrawerItem(DrawerItemId.SET_BOARD_TEXTURE, R.string.option_board_texture),
             new DrawerItem(DrawerItemId.SETTINGS, R.string.option_settings),
             new DrawerItem(DrawerItemId.ABOUT, R.string.option_about),
         };
@@ -1520,7 +1575,10 @@ public class DroidFish extends Activity
 
         switch (id) {
         case NEW_GAME:
-            showDialog(NEW_GAME_DIALOG);
+            showDroidFishDialog(NEW_GAME_DIALOG);
+            break;
+        case ENGINE_MATCH:
+            showDroidFishDialog(ENGINE_MATCH_DIALOG);
             break;
         case SET_STRENGTH:
             reShowDialog(SET_STRENGTH_DIALOG);
@@ -1563,10 +1621,13 @@ public class DroidFish extends Activity
                 reShowDialog(SELECT_ENGINE_DIALOG_NOMANAGE);
             break;
         case SET_COLOR_THEME:
-            showDialog(SET_COLOR_THEME_DIALOG);
+            showDroidFishDialog(SET_COLOR_THEME_DIALOG);
+            break;
+        case SET_BOARD_TEXTURE:
+            showDroidFishDialog(SET_BOARD_TEXTURE_DIALOG);
             break;
         case ABOUT:
-            showDialog(ABOUT_DIALOG);
+            showDroidFishDialog(ABOUT_DIALOG);
             break;
         }
     }
@@ -1582,6 +1643,65 @@ public class DroidFish extends Activity
     static private final int RESULT_OI_FEN_LOAD =  8;
     static private final int RESULT_GET_FEN     =  9;
     static private final int RESULT_EDITOPTIONS = 10;
+
+    private ActivityResultLauncher<String[]> openPgnLauncher;
+    private ActivityResultLauncher<String[]> openFenLauncher;
+    private ActivityResultLauncher<String> createPgnLauncher;
+
+    private void registerSAFLaunchers() {
+        openPgnLauncher = registerForActivityResult(
+            new ActivityResultContracts.OpenDocument(),
+            uri -> {
+                if (uri != null) {
+                    String path = copyUriToLocal(uri, StorageProvider.getPgnDir(), ".saf_import.pgn");
+                    if (path != null)
+                        loadPGNFromFile(path);
+                }
+            });
+        openFenLauncher = registerForActivityResult(
+            new ActivityResultContracts.OpenDocument(),
+            uri -> {
+                if (uri != null) {
+                    String path = copyUriToLocal(uri, StorageProvider.getFenDir(), ".saf_import.epd");
+                    if (path != null)
+                        loadFENFromFile(path);
+                }
+            });
+        createPgnLauncher = registerForActivityResult(
+            new ActivityResultContracts.CreateDocument("application/x-chess-pgn"),
+            uri -> {
+                if (uri != null) {
+                    savePGNToUri(uri);
+                }
+            });
+    }
+
+    private String copyUriToLocal(Uri uri, File targetDir, String localName) {
+        try {
+            File localFile = new File(targetDir, localName);
+            try (InputStream is = getContentResolver().openInputStream(uri);
+                 FileOutputStream fos = new FileOutputStream(localFile)) {
+                if (is == null) return null;
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = is.read(buf)) > 0)
+                    fos.write(buf, 0, len);
+            }
+            return localFile.getAbsolutePath();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void savePGNToUri(Uri uri) {
+        String pgn = ctrl.getPGN();
+        try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+            if (os != null)
+                os.write(pgn.getBytes("UTF-8"));
+        } catch (IOException e) {
+            DroidFishApp.toast(R.string.failed_to_save_game, Toast.LENGTH_SHORT);
+        }
+    }
 
     private void startEditBoard(String fen) {
         Intent i = new Intent(DroidFish.this, EditBoard.class);
@@ -1701,6 +1821,29 @@ public class DroidFish extends Activity
         gameMode = new GameMode(gameModeType);
         maybeAutoModeOff(gameMode);
         ctrl.setGameMode(gameMode);
+        updateEvalBarVisibility();
+    }
+
+    /**
+     * Update eval bar visibility based on the current game mode and preferences.
+     * - Analysis mode: controlled by evalBarAnalysis preference ("off", "barOnly", "textOnly", "both")
+     * - Human vs Engine (PLAYER_WHITE or PLAYER_BLACK): controlled by evalBarHvE preference
+     * - All other modes: eval bar is hidden
+     */
+    private void updateEvalBarVisibility() {
+        if (evalBar == null)
+            return;
+        int modeNr = gameMode.getModeNr();
+        boolean showBar = false;
+        if (modeNr == GameMode.ANALYSIS) {
+            showBar = "barOnly".equals(mEvalBarAnalysis) || "both".equals(mEvalBarAnalysis);
+        } else if (modeNr == GameMode.PLAYER_WHITE || modeNr == GameMode.PLAYER_BLACK) {
+            showBar = mEvalBarHvE;
+        }
+        evalBar.setVisibility(showBar ? View.VISIBLE : View.GONE);
+        if (!showBar) {
+            evalBar.resetToNeutral();
+        }
     }
 
     private String getParseErrString(ChessParseError e) {
@@ -1909,6 +2052,9 @@ public class DroidFish extends Activity
         distToEcoTree = ti.distToEcoTree;
         pvMoves = ti.pvMoves;
         bookMoves = ti.bookMoves;
+        if (evalBar != null && evalBar.getVisibility() == View.VISIBLE) {
+            evalBar.setScore(ti.evalScore, ti.evalIsMate);
+        }
         updateThinkingInfo();
 
         if (ctrl.computerBusy()) {
@@ -1934,7 +2080,12 @@ public class DroidFish extends Activity
         boolean thinkingEmpty = true;
         {
             StringBuilder sb = new StringBuilder(128);
-            if (mShowThinking || gameMode.analysisMode()) {
+            // In analysis mode, suppress thinking text when evalBarAnalysis is "barOnly"
+            boolean showThinkingText = mShowThinking || gameMode.analysisMode();
+            if (gameMode.analysisMode() && "barOnly".equals(mEvalBarAnalysis)) {
+                showThinkingText = false;
+            }
+            if (showThinkingText) {
                 if (!thinkingStr1.isEmpty()) {
                     if (fullPVLines) {
                         sb.append(thinkingStr1);
@@ -2035,15 +2186,24 @@ public class DroidFish extends Activity
     static private final int CLIPBOARD_DIALOG = 26;
     static private final int SELECT_FEN_FILE_DIALOG = 27;
     static private final int SET_STRENGTH_DIALOG = 28;
+    static private final int SET_BOARD_TEXTURE_DIALOG = 29;
+    static private final int ENGINE_MATCH_DIALOG = 30;
 
-    /** Remove and show a dialog. */
+    /** Show a dialog, dismissing any existing instance with the same tag. */
     void reShowDialog(int id) {
-        removeDialog(id);
-        showDialog(id);
+        showDroidFishDialog(id);
+    }
+
+    private void showDroidFishDialog(int id) {
+        String tag = "df_dialog_" + id;
+        androidx.fragment.app.Fragment existing = getSupportFragmentManager().findFragmentByTag(tag);
+        if (existing instanceof DialogFragment)
+            ((DialogFragment) existing).dismissAllowingStateLoss();
+        DroidFishDialogFragment.newInstance(id).show(getSupportFragmentManager(), tag);
     }
 
     @Override
-    protected Dialog onCreateDialog(int id) {
+    public Dialog createDialogById(int id) {
         switch (id) {
         case NEW_GAME_DIALOG:                return newGameDialog();
         case SET_STRENGTH_DIALOG:            return setStrengthDialog();
@@ -2058,6 +2218,7 @@ public class DroidFish extends Activity
         case SELECT_PGN_FILE_SAVE_DIALOG:    return selectPgnFileSaveDialog();
         case SELECT_PGN_SAVE_NEWFILE_DIALOG: return selectPgnSaveNewFileDialog();
         case SET_COLOR_THEME_DIALOG:         return setColorThemeDialog();
+        case SET_BOARD_TEXTURE_DIALOG:       return setBoardTextureDialog();
         case GAME_MODE_DIALOG:               return gameModeDialog();
         case MOVELIST_MENU_DIALOG:           return moveListMenuDialog();
         case THINKING_MENU_DIALOG:           return thinkingMenuDialog();
@@ -2073,12 +2234,13 @@ public class DroidFish extends Activity
         case DELETE_NETWORK_ENGINE_DIALOG:   return deleteNetworkEngineDialog();
         case CLIPBOARD_DIALOG:               return clipBoardDialog();
         case SELECT_FEN_FILE_DIALOG:         return selectFenFileDialog();
+        case ENGINE_MATCH_DIALOG:            return engineMatchDialog();
         }
         return null;
     }
 
     private Dialog newGameDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.option_new_game);
         builder.setMessage(R.string.start_new_game);
         builder.setNeutralButton(R.string.yes, (dialog, which) -> startNewGame(2));
@@ -2128,7 +2290,7 @@ public class DroidFish extends Activity
                 DroidFishApp.toast(R.string.engine_cannot_reduce_strength, Toast.LENGTH_LONG);
                 return null;
             }
-            AlertDialog.Builder builder = new AlertDialog.Builder(DroidFish.this);
+            AlertDialog.Builder builder = new MaterialAlertDialogBuilder(DroidFish.this);
             builder.setTitle(R.string.set_engine_strength);
             View content = View.inflate(DroidFish.this, R.layout.set_strength, null);
             builder.setView(content);
@@ -2210,7 +2372,7 @@ public class DroidFish extends Activity
             getString(R.string.queen), getString(R.string.rook),
             getString(R.string.bishop), getString(R.string.knight)
         };
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.promote_pawn_to);
         builder.setItems(items, (dialog, item) -> ctrl.reportPromotePiece(item));
         return builder.create();
@@ -2227,7 +2389,7 @@ public class DroidFish extends Activity
         lst.add(getString(R.string.copy_game));     actions.add(COPY_GAME);
         lst.add(getString(R.string.copy_position)); actions.add(COPY_POSITION);
         lst.add(getString(R.string.paste));         actions.add(PASTE);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.tools_menu);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -2258,9 +2420,7 @@ public class DroidFish extends Activity
                         String fenPgnData = fenPgn.toString();
                         ArrayList<GameInfo> gi = PGNFile.getGameInfo(fenPgnData, 2);
                         if (gi.size() > 1) {
-                            String sep = File.separator;
-                            String fn = Environment.getExternalStorageDirectory() + sep +
-                                        pgnDir + sep + ".sharedfile.pgn";
+                            String fn = new File(StorageProvider.getPgnDir(), ".sharedfile.pgn").getAbsolutePath();
                             try (FileOutputStream writer = new FileOutputStream(fn)) {
                                 writer.write(fenPgnData.getBytes());
                                 writer.close();
@@ -2308,12 +2468,12 @@ public class DroidFish extends Activity
         if (moveAnnounceType.startsWith("speech_")) {
             lst.add(getString(R.string.repeat_last_move)); actions.add(REPEAT_LAST_MOVE);
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.tools_menu);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
             case CLIPBOARD:
-                showDialog(CLIPBOARD_DIALOG);
+                showDroidFishDialog(CLIPBOARD_DIALOG);
                 break;
             case FILEMENU:
                 reShowDialog(FILE_MENU_DIALOG);
@@ -2357,7 +2517,7 @@ public class DroidFish extends Activity
                 DroidFishApp.toast(e.getMessage(), Toast.LENGTH_LONG);
                 return;
             }
-            String authority = "org.petero.droidfish.fileprovider";
+            String authority = "org.petero.droidfish.modern.fileprovider";
             Uri uri = FileProvider.getUriForFile(this, authority, file);
             i.putExtra(Intent.EXTRA_STREAM, uri);
         }
@@ -2389,7 +2549,7 @@ public class DroidFish extends Activity
             return;
         }
 
-        String authority = "org.petero.droidfish.fileprovider";
+        String authority = "org.petero.droidfish.modern.fileprovider";
         Uri uri = FileProvider.getUriForFile(this, authority, file);
 
         Intent i = new Intent(Intent.ACTION_SEND);
@@ -2424,7 +2584,7 @@ public class DroidFish extends Activity
             lst.add(getString(R.string.load_del_game));  actions.add(LOAD_DELETED_GAME);
         }
         lst.add(getString(R.string.save_game));     actions.add(SAVE_GAME);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.load_save_menu);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -2476,7 +2636,7 @@ public class DroidFish extends Activity
     }
 
     private Dialog aboutDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         WebView wv = new WebView(this);
         builder.setView(wv);
         try (InputStream is = getResources().openRawResource(R.raw.about)) {
@@ -2497,7 +2657,8 @@ public class DroidFish extends Activity
     }
 
     private Dialog selectBookDialog() {
-        String[] fileNames = FileUtil.findFilesInDirectory(bookDir, filename -> {
+        File bookDirFile = StorageProvider.getBookDir();
+        String[] fileNames = FileUtil.findFilesInDirectory(bookDirFile, filename -> {
             int dotIdx = filename.lastIndexOf(".");
             if (dotIdx < 0)
                 return false;
@@ -2518,9 +2679,7 @@ public class DroidFish extends Activity
         else if ("nobook:".equals(bookOptions.filename))
             defaultItem = numFiles + 2;
         String oldName = bookOptions.filename;
-        File extDir = Environment.getExternalStorageDirectory();
-        String sep = File.separator;
-        String defDir = extDir.getAbsolutePath() + sep + bookDir + sep;
+        String defDir = bookDirFile.getAbsolutePath() + File.separator;
         if (oldName.startsWith(defDir))
             oldName = oldName.substring(defDir.length());
         for (int i = 0; i < numFiles; i++) {
@@ -2530,7 +2689,7 @@ public class DroidFish extends Activity
             }
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.select_opening_book_file);
         builder.setSingleChoiceItems(items, defaultItem, (dialog, item) -> {
             Editor editor = settings.edit();
@@ -2565,8 +2724,8 @@ public class DroidFish extends Activity
         ids.add("cuckoochess"); items.add(getString(R.string.cuckoochess_engine));
 
         if (storageAvailable()) {
-            final String sep = File.separator;
-            final String base = Environment.getExternalStorageDirectory() + sep + engineDir + sep;
+            final File engineDirFile = StorageProvider.getEngineDir();
+            final String base = engineDirFile.getAbsolutePath() + File.separator;
             {
                 ChessEngineResolver resolver = new ChessEngineResolver(this);
                 List<ChessEngine> engines = resolver.resolveEngines();
@@ -2580,16 +2739,21 @@ public class DroidFish extends Activity
                 }
                 Collections.sort(oexEngines, (lhs, rhs) -> lhs.second.compareTo(rhs.second));
                 for (Pair<String,String> eng : oexEngines) {
-                    ids.add(base + EngineUtil.openExchangeDir + sep + eng.first);
+                    ids.add(base + EngineUtil.openExchangeDir + File.separator + eng.first);
                     items.add(eng.second);
                 }
             }
 
-            String[] fileNames = FileUtil.findFilesInDirectory(engineDir,
+            String[] fileNames = FileUtil.findFilesInDirectory(engineDirFile,
                                                                fname -> !reservedEngineName(fname));
             for (String file : fileNames) {
                 ids.add(base + file);
                 items.add(file);
+            }
+            if (fileNames.length == 0) {
+                ids.add("");
+                items.add("[Place engines in: " +
+                    engineDirFile.getAbsolutePath() + "]");
             }
         }
 
@@ -2602,7 +2766,7 @@ public class DroidFish extends Activity
                 break;
             }
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.select_chess_engine);
         builder.setSingleChoiceItems(items.toArray(new String[0]), defaultItem,
                 (dialog, item) -> {
@@ -2643,7 +2807,7 @@ public class DroidFish extends Activity
         final String[] fileNames = FileUtil.findFilesInDirectory(defaultDir, null);
         final int numFiles = fileNames.length;
         if (numFiles == 0) {
-            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
             builder.setTitle(R.string.app_name).setMessage(noFilesMsg);
             return builder.create();
         }
@@ -2656,13 +2820,13 @@ public class DroidFish extends Activity
                 break;
             }
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(selectFileMsg);
         builder.setSingleChoiceItems(fileNames, defaultItem, (dialog, item) -> {
             dialog.dismiss();
             String sep = File.separator;
             String fn = fileNames[item];
-            String pathName = Environment.getExternalStorageDirectory() + sep + defaultDir + sep + fn;
+            String pathName = new File(new File(StorageProvider.getBaseDir(), defaultDir), fn).getAbsolutePath();
             loader.load(pathName);
         });
         return builder.create();
@@ -2685,18 +2849,17 @@ public class DroidFish extends Activity
         for (int i = 0; i < numFiles; i++)
             items[i] = fileNames[i];
         items[numFiles] = getString(R.string.new_file);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.select_pgn_file_save);
         builder.setSingleChoiceItems(items, defaultItem, (dialog, item) -> {
             String pgnFile;
             if (item >= numFiles) {
                 dialog.dismiss();
-                showDialog(SELECT_PGN_SAVE_NEWFILE_DIALOG);
+                showDroidFishDialog(SELECT_PGN_SAVE_NEWFILE_DIALOG);
             } else {
                 dialog.dismiss();
                 pgnFile = fileNames[item];
-                String sep = File.separator;
-                String pathName = Environment.getExternalStorageDirectory() + sep + pgnDir + sep + pgnFile;
+                String pathName = new File(StorageProvider.getPgnDir(), pgnFile).getAbsolutePath();
                 savePGNToFile(pathName);
             }
         });
@@ -2706,7 +2869,7 @@ public class DroidFish extends Activity
     private Dialog selectPgnSaveNewFileDialog() {
         setAutoMode(AutoMode.OFF);
         View content = View.inflate(this, R.layout.create_pgn_file, null);
-        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        final AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setView(content);
         builder.setTitle(R.string.select_pgn_file_save);
         final EditText fileNameView = content.findViewById(R.id.create_pgn_filename);
@@ -2715,8 +2878,7 @@ public class DroidFish extends Activity
             String pgnFile = fileNameView.getText().toString();
             if ((pgnFile.length() > 0) && !pgnFile.contains("."))
                 pgnFile += ".pgn";
-            String sep = File.separator;
-            String pathName = Environment.getExternalStorageDirectory() + sep + pgnDir + sep + pgnFile;
+            String pathName = new File(StorageProvider.getPgnDir(), pgnFile).getAbsolutePath();
             savePGNToFile(pathName);
         };
         builder.setPositiveButton(android.R.string.ok, (dialog, which) -> savePGN.run());
@@ -2735,21 +2897,593 @@ public class DroidFish extends Activity
     }
 
     private Dialog setColorThemeDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.select_color_theme);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+
         String[] themeNames = new String[ColorTheme.themeNames.length];
         for (int i = 0; i < themeNames.length; i++)
             themeNames[i] = getString(ColorTheme.themeNames[i]);
-        builder.setSingleChoiceItems(themeNames, -1, (dialog, item) -> {
-            ColorTheme.instance().setTheme(settings, item);
+
+        final SeekBar brightnessBar = new SeekBar(this);
+        brightnessBar.setMax(100);
+        int savedProgress = (int)((settings.getFloat("boardBrightness", 1.0f) - 0.5f) * 100);
+        brightnessBar.setProgress(Math.max(0, Math.min(100, savedProgress)));
+        brightnessBar.setPadding(pad, pad / 2, pad, pad);
+        brightnessBar.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    float brightness = 0.5f + progress / 100.0f;
+                    cb.setBoardBrightness(brightness);
+                }
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                float brightness = 0.5f + seekBar.getProgress() / 100.0f;
+                Editor editor = settings.edit();
+                editor.putFloat("boardBrightness", brightness);
+                editor.apply();
+            }
+        });
+
+        ListView listView = new ListView(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_list_item_single_choice, themeNames);
+        listView.setAdapter(adapter);
+        listView.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            ColorTheme.instance().setTheme(settings, position);
+            BoardTheme.instance().readSettings(settings);
             PieceSet.instance().readPrefs(settings);
-            cb.setColors();
+            cb.setBoardBrightness(1.0f);
+            brightnessBar.setProgress(50);
+            Editor editor = settings.edit();
+            editor.putFloat("boardBrightness", 1.0f);
+            editor.apply();
             gameTextListener.clear();
             ctrl.prefsChanged(false);
-            dialog.dismiss();
+            if (engineMatchController != null && engineMatchController.isRunning()) {
+                cb.setMoveHints(null);
+                cb.setSelection(-1);
+            }
             overrideViewAttribs();
         });
+        layout.addView(listView, new LinearLayout.LayoutParams(
+                LayoutParams.MATCH_PARENT, 0, 1.0f));
+
+        TextView brightnessLabel = new TextView(this);
+        brightnessLabel.setText("Board Brightness");
+        brightnessLabel.setPadding(pad, pad, pad, 0);
+        layout.addView(brightnessLabel);
+        layout.addView(brightnessBar);
+
+        builder.setView(layout);
+        builder.setPositiveButton(android.R.string.ok, null);
         return builder.create();
+    }
+
+    private Dialog setBoardTextureDialog() {
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
+        builder.setTitle(R.string.select_board_texture);
+        String currentTexture = settings.getString("boardTexture", "");
+        int checkedItem = 0;
+        for (int i = 0; i < BoardTheme.TEXTURE_NAMES.length; i++) {
+            if (BoardTheme.TEXTURE_NAMES[i].equals(currentTexture)) {
+                checkedItem = i;
+                break;
+            }
+        }
+        builder.setSingleChoiceItems(BoardTheme.TEXTURE_DISPLAY_NAMES, checkedItem, (dialog, item) -> {
+            Editor editor = settings.edit();
+            editor.putString("boardTexture", BoardTheme.TEXTURE_NAMES[item]);
+            editor.apply();
+            BoardTheme.instance().readSettings(settings);
+            cb.setColors();
+            cb.invalidate();
+            dialog.dismiss();
+        });
+        return builder.create();
+    }
+
+    private Dialog engineMatchDialog() {
+        final ArrayList<String> engineItems = new ArrayList<>();
+        final ArrayList<String> engineIds = new ArrayList<>();
+        engineIds.add("stockfish"); engineItems.add(getString(R.string.stockfish_engine));
+        engineIds.add("cuckoochess"); engineItems.add(getString(R.string.cuckoochess_engine));
+
+        if (storageAvailable()) {
+            final File engineDirFile = StorageProvider.getEngineDir();
+            final String base = engineDirFile.getAbsolutePath() + File.separator;
+            ChessEngineResolver resolver = new ChessEngineResolver(this);
+            List<ChessEngine> engines = resolver.resolveEngines();
+            ArrayList<Pair<String,String>> oexEngines = new ArrayList<>();
+            for (ChessEngine engine : engines) {
+                if ((engine.getName() != null) && (engine.getFileName() != null) &&
+                        (engine.getPackageName() != null)) {
+                    oexEngines.add(new Pair<>(EngineUtil.openExchangeFileName(engine),
+                            engine.getName()));
+                }
+            }
+            Collections.sort(oexEngines, (lhs, rhs) -> lhs.second.compareTo(rhs.second));
+            for (Pair<String,String> eng : oexEngines) {
+                engineIds.add(base + EngineUtil.openExchangeDir + File.separator + eng.first);
+                engineItems.add(eng.second);
+            }
+            String[] fileNames = FileUtil.findFilesInDirectory(engineDirFile,
+                    fname -> !reservedEngineName(fname));
+            for (String file : fileNames) {
+                engineIds.add(base + file);
+                engineItems.add(file);
+            }
+        }
+
+        final String[] engineNames = engineItems.toArray(new String[0]);
+
+        // Build book list: bin/ctg/abk from book dir + pgn files from pgn dir
+        final ArrayList<String> bookItems = new ArrayList<>();
+        final ArrayList<String> bookPaths = new ArrayList<>();
+        final ArrayList<EngineMatchConfig.BookType> bookTypes = new ArrayList<>();
+
+        File bookDirForMatch = StorageProvider.getBookDir();
+        String[] binBooks = FileUtil.findFilesInDirectory(bookDirForMatch, filename -> {
+            int dotIdx = filename.lastIndexOf(".");
+            if (dotIdx < 0) return false;
+            String ext = filename.substring(dotIdx + 1);
+            return ("ctg".equals(ext) || "bin".equals(ext) || "abk".equals(ext));
+        });
+        for (String book : binBooks) {
+            bookItems.add(book);
+            bookPaths.add(bookDirForMatch.getAbsolutePath() + File.separator + book);
+            bookTypes.add(EngineMatchConfig.BookType.POLYGLOT);
+        }
+
+        // PGN books from book dir only
+        String[] pgnInBookDir = FileUtil.findFilesInDirectory(bookDirForMatch, filename -> {
+            return filename.toLowerCase(Locale.US).endsWith(".pgn");
+        });
+        for (String pgn : pgnInBookDir) {
+            bookItems.add(pgn + " (PGN)");
+            bookPaths.add(bookDirForMatch.getAbsolutePath() + File.separator + pgn);
+            bookTypes.add(EngineMatchConfig.BookType.PGN);
+        }
+
+        android.view.LayoutInflater inflater = getLayoutInflater();
+        View view = inflater.inflate(R.layout.engine_match_dialog, null);
+
+        final Spinner spinner1 = view.findViewById(R.id.engine_match_spinner1);
+        final Spinner spinner2 = view.findViewById(R.id.engine_match_spinner2);
+        final EditText timeEdit = view.findViewById(R.id.engine_match_time_edit);
+        final EditText incEdit = view.findViewById(R.id.engine_match_inc_edit);
+        final EditText gamesEdit = view.findViewById(R.id.engine_match_games_edit);
+        final CheckBox alternateColors = view.findViewById(R.id.engine_match_alternate);
+        final CheckBox keepScreenOnCb = view.findViewById(R.id.engine_match_keep_screen_on);
+        final android.widget.RadioGroup openingGroup = view.findViewById(R.id.engine_match_opening_group);
+        final View bookOptions = view.findViewById(R.id.engine_match_book_options);
+        final Spinner bookSpinner = view.findViewById(R.id.engine_match_book_spinner);
+        final EditText maxPliesEdit = view.findViewById(R.id.engine_match_max_plies_edit);
+        final View pgnOrderRow = view.findViewById(R.id.engine_match_pgn_order_row);
+        final Spinner pgnOrderSpinner = view.findViewById(R.id.engine_match_pgn_order_spinner);
+        final EditText maxMovesEdit = view.findViewById(R.id.engine_match_max_moves_edit);
+        final CheckBox autoAdjudicateCb = view.findViewById(R.id.engine_match_auto_adjudicate);
+        final View adjudicationOptions = view.findViewById(R.id.engine_match_adjudication_options);
+        final EditText drawCpEdit = view.findViewById(R.id.engine_match_draw_cp_edit);
+        final EditText resignCpEdit = view.findViewById(R.id.engine_match_resign_cp_edit);
+
+        autoAdjudicateCb.setOnCheckedChangeListener((btn, isChecked) -> {
+            adjudicationOptions.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+        });
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, engineNames);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner1.setAdapter(adapter);
+        spinner2.setAdapter(adapter);
+
+        if (engineIds.size() > 1) spinner2.setSelection(1);
+
+        android.widget.AdapterView.OnItemSelectedListener engineValidationListener =
+                new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
+                String engineId = engineIds.get(pos);
+                if ("stockfish".equals(engineId) || "cuckoochess".equals(engineId))
+                    return;
+                Spinner spinner = (Spinner) parent;
+                new Thread(() -> {
+                    boolean ok = validateEngine(engineId);
+                    if (!ok) {
+                        runOnUiThread(() -> {
+                            DroidFishApp.toast("Engine load error! Pick a different engine.", Toast.LENGTH_LONG);
+                            spinner.setSelection(0);
+                        });
+                    }
+                }, "EngineValidation").start();
+            }
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        };
+        spinner1.setOnItemSelectedListener(engineValidationListener);
+        spinner2.setOnItemSelectedListener(engineValidationListener);
+
+        ArrayAdapter<String> bookAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, bookItems.toArray(new String[0]));
+        bookAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        bookSpinner.setAdapter(bookAdapter);
+
+        String[] orderOptions = {
+            getString(R.string.engine_match_pgn_sequential),
+            getString(R.string.engine_match_pgn_random)
+        };
+        ArrayAdapter<String> orderAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, orderOptions);
+        orderAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        pgnOrderSpinner.setAdapter(orderAdapter);
+
+        android.widget.RadioButton bookRadio = view.findViewById(R.id.engine_match_radio_book);
+        if (bookItems.isEmpty()) {
+            bookRadio.setEnabled(false);
+        }
+
+        openingGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            bookOptions.setVisibility(checkedId == R.id.engine_match_radio_book ? View.VISIBLE : View.GONE);
+        });
+
+        bookSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
+                boolean isPgn = pos < bookTypes.size() && bookTypes.get(pos) == EngineMatchConfig.BookType.PGN;
+                pgnOrderRow.setVisibility(isPgn ? View.VISIBLE : View.GONE);
+            }
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
+                pgnOrderRow.setVisibility(View.GONE);
+            }
+        });
+
+        timeEdit.setText("60");
+        incEdit.setText("1");
+        gamesEdit.setText("2");
+        maxPliesEdit.setText("20");
+        alternateColors.setChecked(true);
+
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
+        builder.setTitle(R.string.engine_match_title);
+        builder.setView(view);
+        builder.setPositiveButton(R.string.engine_match_start, (dialog, which) -> {
+            EngineMatchConfig matchConfig = new EngineMatchConfig();
+            int sel1 = spinner1.getSelectedItemPosition();
+            int sel2 = spinner2.getSelectedItemPosition();
+            matchConfig.engine1 = engineIds.get(sel1);
+            matchConfig.engine2 = engineIds.get(sel2);
+            matchConfig.engine1Name = engineNames[sel1];
+            matchConfig.engine2Name = engineNames[sel2];
+
+            try {
+                matchConfig.timeMs = Integer.parseInt(timeEdit.getText().toString()) * 1000;
+            } catch (NumberFormatException e) {
+                matchConfig.timeMs = 60000;
+            }
+            try {
+                matchConfig.incrementMs = Integer.parseInt(incEdit.getText().toString()) * 1000;
+            } catch (NumberFormatException e) {
+                matchConfig.incrementMs = 1000;
+            }
+            try {
+                matchConfig.numGames = Integer.parseInt(gamesEdit.getText().toString());
+            } catch (NumberFormatException e) {
+                matchConfig.numGames = 2;
+            }
+
+            matchConfig.alternateColors = alternateColors.isChecked();
+            matchConfig.keepScreenOn = keepScreenOnCb.isChecked();
+
+            try {
+                matchConfig.maxMoves = Integer.parseInt(maxMovesEdit.getText().toString());
+            } catch (NumberFormatException e) {
+                matchConfig.maxMoves = 200;
+            }
+            matchConfig.autoAdjudicate = autoAdjudicateCb.isChecked();
+            if (matchConfig.autoAdjudicate) {
+                try {
+                    matchConfig.drawThresholdCp = Integer.parseInt(drawCpEdit.getText().toString());
+                } catch (NumberFormatException e) {
+                    matchConfig.drawThresholdCp = 10;
+                }
+                try {
+                    matchConfig.resignThresholdCp = Integer.parseInt(resignCpEdit.getText().toString());
+                } catch (NumberFormatException e) {
+                    matchConfig.resignThresholdCp = 500;
+                }
+            }
+
+            int checkedRadio = openingGroup.getCheckedRadioButtonId();
+            if (checkedRadio == R.id.engine_match_radio_current_pos) {
+                matchConfig.startFen = ctrl.getFEN();
+            } else if (checkedRadio == R.id.engine_match_radio_book) {
+                int bookSel = bookSpinner.getSelectedItemPosition();
+                if (bookSel >= 0 && bookSel < bookTypes.size()) {
+                    matchConfig.bookType = bookTypes.get(bookSel);
+                    matchConfig.bookFile = bookPaths.get(bookSel);
+                    try {
+                        matchConfig.pgnBookMaxPlies = Integer.parseInt(maxPliesEdit.getText().toString());
+                    } catch (NumberFormatException e) {
+                        matchConfig.pgnBookMaxPlies = 20;
+                    }
+                    if (matchConfig.bookType == EngineMatchConfig.BookType.PGN) {
+                        matchConfig.pgnBookOrder = pgnOrderSpinner.getSelectedItemPosition() == 0 ?
+                                org.petero.droidfish.book.PgnBook.Order.SEQUENTIAL :
+                                org.petero.droidfish.book.PgnBook.Order.RANDOM;
+                    }
+                }
+            }
+
+            startEngineMatch(matchConfig);
+        });
+        builder.setNegativeButton(android.R.string.cancel, null);
+        return builder.create();
+    }
+
+    private void startEngineMatch(EngineMatchConfig matchConfig) {
+        EngineOptions eOpts = new EngineOptions();
+        eOpts.workDir = StorageProvider.getEngineDir().getAbsolutePath();
+        Handler handler = new Handler(Looper.getMainLooper());
+
+        EngineMatchListener matchListener = new EngineMatchListener() {
+            @Override
+            public void onMatchStarted(EngineMatchConfig config) {
+                handler.post(() -> {
+                    status.setText(getString(R.string.engine_match_running));
+                });
+            }
+
+            @Override
+            public void onGameStarted(int gameNumber, String whiteEngine, String blackEngine) {
+                handler.post(() -> {
+                    matchMoveText = new StringBuilder();
+                    moveList.setText("");
+                    engineTitleText.setText(String.format(Locale.US, "Engine Match (%d/%d)",
+                            gameNumber, matchConfig.numGames));
+                    status.setText(String.format(Locale.US, "Game %d: %s vs %s",
+                            gameNumber, whiteEngine, blackEngine));
+                });
+            }
+
+            @Override
+            public void onPositionChanged(org.petero.droidfish.gamelogic.Position pos,
+                                          org.petero.droidfish.gamelogic.Move lastMove,
+                                          String lastMoveNotation,
+                                          String whiteEngine, String blackEngine,
+                                          long wTimeMs, long bTimeMs) {
+                handler.post(() -> {
+                    cb.setPosition(pos);
+                    if (lastMove != null) {
+                        cb.setLastMoveArrow(lastMove);
+                    } else {
+                        cb.clearLastMoveArrow();
+                    }
+                    cb.invalidate();
+                    String wName = whiteEngine.length() > 10 ? whiteEngine.substring(0, 10) : whiteEngine;
+                    String bName = blackEngine.length() > 10 ? blackEngine.substring(0, 10) : blackEngine;
+                    whiteTitleText.setText(getString(R.string.white_square_character) + " " +
+                            wName + " " + timeToString((int) wTimeMs));
+                    blackTitleText.setText(getString(R.string.black_square_character) + " " +
+                            bName + " " + timeToString((int) bTimeMs));
+
+                    if (matchMoveText != null && lastMoveNotation != null) {
+                        if (pos.whiteMove) {
+                            // Black just moved
+                            matchMoveText.append(lastMoveNotation).append(" ");
+                        } else {
+                            // White just moved
+                            matchMoveText.append(pos.fullMoveCounter).append(". ").append(lastMoveNotation).append(" ");
+                        }
+                        moveList.setText(matchMoveText.toString());
+                        moveListScroll.post(() -> moveListScroll.fullScroll(View.FOCUS_DOWN));
+                    }
+                });
+            }
+
+            @Override
+            public void onEngineThinking(String engineName, int depth, int score, String pv) {
+                handler.post(() -> {
+                    String info = String.format(Locale.US, "%s d%d %+.2f %s",
+                            engineName, depth, score / 100.0, pv);
+                    thinking.setText(info);
+                    thinking.setVisibility(View.VISIBLE);
+                });
+            }
+
+            @Override
+            public void onGameFinished(EngineMatchResult.GameRecord record) {
+                handler.post(() -> {
+                    EngineMatchResult res = engineMatchController.getResult();
+                    matchScoreLine.setText(String.format(Locale.US, "%s: +%d -%d =%d",
+                            matchConfig.engine1Name, res.getEngine1Wins(), res.getEngine2Wins(), res.getDraws()));
+                    status.setText(String.format(Locale.US, "Game %d: %s (%s)",
+                            record.gameNumber, record.resultString(), record.termination));
+                });
+            }
+
+            @Override
+            public void onMatchFinished(EngineMatchResult result, String pgnFilePath) {
+                handler.post(() -> {
+                    setEngineMatchMode(false, false);
+                    showMatchResultDialog(result, pgnFilePath);
+                });
+            }
+
+            @Override
+            public void onMatchError(String error) {
+                handler.post(() -> {
+                    new MaterialAlertDialogBuilder(DroidFish.this)
+                        .setTitle(R.string.engine_error)
+                        .setMessage(error)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+                    status.setText(error);
+                    setEngineMatchMode(false, false);
+                });
+            }
+
+            @Override
+            public void onStatusUpdate(String statusMsg) {
+                handler.post(() -> status.setText(statusMsg));
+            }
+        };
+
+        if (engineMatchController != null && engineMatchController.isRunning()) {
+            engineMatchController.stopMatch();
+        }
+        ctrl.shutdownEngine();
+
+        engineMatchController = new EngineMatchController(matchListener, eOpts);
+        setEngineMatchMode(true, matchConfig.keepScreenOn);
+        engineMatchController.startMatch(matchConfig);
+    }
+
+    private String savedEngineTitleText = "";
+
+    private void setEngineMatchMode(boolean active, boolean keepScreenOn) {
+        if (active) {
+            custom1Button.setVisibility(View.GONE);
+            custom2Button.setVisibility(View.GONE);
+            custom3Button.setVisibility(View.GONE);
+            modeButton.setVisibility(View.GONE);
+            adjudicateButton.setVisibility(View.VISIBLE);
+            stopMatchButton.setVisibility(View.VISIBLE);
+            savedEngineTitleText = engineTitleText.getText().toString();
+            engineTitleText.setText("Engine Match");
+            cb.setSelection(-1);
+            cb.setMoveHints(null);
+            evalBar.setVisibility(View.GONE);
+            cb.invalidate();
+            matchScoreLine.setText("");
+            matchScoreLine.setVisibility(View.VISIBLE);
+            updateMatchButtons();
+            acquireMatchWakeLock(keepScreenOn);
+        } else {
+            custom1Button.setVisibility(View.VISIBLE);
+            custom2Button.setVisibility(View.VISIBLE);
+            custom3Button.setVisibility(View.VISIBLE);
+            modeButton.setVisibility(View.VISIBLE);
+            adjudicateButton.setVisibility(View.GONE);
+            stopMatchButton.setVisibility(View.GONE);
+            engineTitleText.setText(savedEngineTitleText);
+            cb.clearLastMoveArrow();
+            matchScoreLine.setVisibility(View.GONE);
+            updateEvalBarVisibility();
+            releaseMatchWakeLock();
+        }
+    }
+
+    private void updateMatchButtons() {
+        Resources r = getResources();
+        int bWidth = Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 36, r.getDisplayMetrics()));
+        int bHeight = Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32, r.getDisplayMetrics()));
+        SVG svg = null;
+        try { svg = SVG.getFromResource(getResources(), R.raw.touch); } catch (SVGParseException ignore) {}
+        setButtonData(adjudicateButton, bWidth, bHeight, R.raw.adjudicate, svg);
+        setButtonData(stopMatchButton, bWidth, bHeight, R.raw.stop, svg);
+    }
+
+    private PowerManager.WakeLock matchCpuWakeLock;
+
+    private void acquireMatchWakeLock(boolean keepScreenOn) {
+        if (keepScreenOn) {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        } else {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            matchCpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidFish:EngineMatch");
+            matchCpuWakeLock.acquire();
+        }
+    }
+
+    private void releaseMatchWakeLock() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (matchCpuWakeLock != null && matchCpuWakeLock.isHeld()) {
+            matchCpuWakeLock.release();
+            matchCpuWakeLock = null;
+        }
+    }
+
+    private void showAdjudicateDialog() {
+        if (engineMatchController == null || !engineMatchController.isRunning())
+            return;
+        String[] options = {
+            getString(R.string.engine_match_white_wins),
+            getString(R.string.engine_match_draw),
+            getString(R.string.engine_match_black_wins)
+        };
+        final int[] selected = {1}; // default to draw
+        new MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.engine_match_adjudicate_title)
+            .setSingleChoiceItems(options, 1, (dialog, which) -> selected[0] = which)
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                EngineMatchController.AdjudicationResult adjResult;
+                switch (selected[0]) {
+                    case 0: adjResult = EngineMatchController.AdjudicationResult.WHITE_WINS; break;
+                    case 2: adjResult = EngineMatchController.AdjudicationResult.BLACK_WINS; break;
+                    default: adjResult = EngineMatchController.AdjudicationResult.DRAW; break;
+                }
+                engineMatchController.adjudicateGame(adjResult);
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    private void showMatchResultDialog(EngineMatchResult result, String pgnFilePath) {
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
+        builder.setTitle("Match Complete");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(result.getSummary()).append("\n\n");
+
+        if (result.getTotalGames() % 2 == 0 && result.getTotalGames() >= 2) {
+            sb.append("Pentanomial: ").append(result.getPentanomial()).append("\n\n");
+        }
+
+        String elo = result.getEloEstimate();
+        if (!elo.isEmpty()) {
+            sb.append(elo).append("\n\n");
+        }
+
+        if (pgnFilePath != null) {
+            sb.append("PGN saved to:\n").append(pgnFilePath);
+        }
+        builder.setMessage(sb.toString());
+        builder.setPositiveButton(android.R.string.ok, null);
+        builder.show();
+    }
+
+    private boolean validateEngine(String engineId) {
+        EngineOptions eOpts = new EngineOptions();
+        eOpts.workDir = StorageProvider.getEngineDir().getAbsolutePath();
+        UCIEngine engine = null;
+        try {
+            engine = UCIEngineBase.getEngine(engineId, eOpts, errMsg -> {});
+            engine.initialize();
+            engine.writeLineToEngine("uci");
+            long deadline = System.currentTimeMillis() + 2000;
+            while (System.currentTimeMillis() < deadline) {
+                String line = engine.readLineFromEngine(200);
+                if (line == null) continue;
+                if (line.equals("uciok")) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (engine != null) {
+                try { engine.writeLineToEngine("quit"); } catch (Exception ignored) {}
+                engine.shutDown();
+            }
+        }
     }
 
     private Dialog gameModeDialog() {
@@ -2761,7 +3495,7 @@ public class DroidFish extends Activity
             getString(R.string.two_players),
             getString(R.string.comp_vs_comp)
         };
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.select_game_mode);
         builder.setItems(items, (dialog, item) -> {
             int gameModeType = -1;
@@ -2816,7 +3550,7 @@ public class DroidFish extends Activity
         if (allowNullMove) {
             lst.add(getString(R.string.add_null_move)); actions.add(ADD_NULL_MOVE);
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.edit_game);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -2854,7 +3588,7 @@ public class DroidFish extends Activity
         final TreeMap<String,String> headers = new TreeMap<>();
         ctrl.getHeaders(headers);
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(DroidFish.this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(DroidFish.this);
         builder.setTitle(R.string.edit_headers);
         View content = View.inflate(DroidFish.this, R.layout.edit_headers, null);
         builder.setView(content);
@@ -2904,7 +3638,7 @@ public class DroidFish extends Activity
 
     /** Let the user edit comments related to a move. */
     private void editComments() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(DroidFish.this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(DroidFish.this);
         builder.setTitle(R.string.edit_comments);
         View content = View.inflate(DroidFish.this, R.layout.edit_comments, null);
         builder.setView(content);
@@ -2973,7 +3707,7 @@ public class DroidFish extends Activity
                 lst.add(getString(R.string.show_statistics)); actions.add(SHOW_STATISTICS);
             }
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.analysis);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -3083,7 +3817,7 @@ public class DroidFish extends Activity
             final int maxPV = Math.min(100, maxPV0);
             numPV = Math.min(maxPV, numPV);
 
-            AlertDialog.Builder builder = new AlertDialog.Builder(DroidFish.this);
+            AlertDialog.Builder builder = new MaterialAlertDialogBuilder(DroidFish.this);
             builder.setTitle(R.string.num_variations);
             View content = View.inflate(DroidFish.this, R.layout.num_variations, null);
             builder.setView(content);
@@ -3159,7 +3893,7 @@ public class DroidFish extends Activity
         if (!gameMode.clocksActive()) {
             lst.add(getString(R.string.auto_backward)); actions.add(AUTO_BACKWARD);
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.go_back);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -3197,7 +3931,7 @@ public class DroidFish extends Activity
         if (!gameMode.clocksActive()) {
             lst.add(getString(R.string.auto_forward)); actions.add(AUTO_FORWARD);
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.go_forward);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -3226,7 +3960,7 @@ public class DroidFish extends Activity
                 used.add(a.getId());
             }
         }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(buttonActions.getMenuTitle());
         builder.setItems(names.toArray(new String[0]), (dialog, item) -> {
             UIAction a = actions.get(item);
@@ -3247,7 +3981,7 @@ public class DroidFish extends Activity
             actions.add(SET_ENGINE_OPTIONS);
         }
         lst.add(getString(R.string.configure_network_engine)); actions.add(CONFIG_NET_ENGINE);
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.option_manage_engines);
         builder.setItems(lst.toArray(new String[0]), (dialog, item) -> {
             switch (actions.get(item)) {
@@ -3284,7 +4018,7 @@ public class DroidFish extends Activity
         UCIOptions uciOpts = ctrl.getUCIOptions();
         if (uciOpts != null) {
             i.putExtra("org.petero.droidfish.ucioptions", uciOpts);
-            i.putExtra("org.petero.droidfish.enginename", engineTitleText.getText());
+            i.putExtra("org.petero.droidfish.enginename", engineTitleText.getText().toString());
             i.putExtra("org.petero.droidfish.workDir", engineOptions.workDir);
             boolean localEngine = engineOptions.networkID.isEmpty();
             i.putExtra("org.petero.droidfish.localEngine", localEngine);
@@ -3293,7 +4027,8 @@ public class DroidFish extends Activity
     }
 
     private Dialog networkEngineDialog() {
-        String[] fileNames = FileUtil.findFilesInDirectory(engineDir, filename -> {
+        File networkEngineDir = StorageProvider.getEngineDir();
+        String[] fileNames = FileUtil.findFilesInDirectory(networkEngineDir, filename -> {
             if (reservedEngineName(filename))
                 return false;
             return EngineUtil.isNetEngine(filename);
@@ -3302,8 +4037,7 @@ public class DroidFish extends Activity
         final String[] items = new String[numItems];
         final String[] ids = new String[numItems];
         int idx = 0;
-        String sep = File.separator;
-        String base = Environment.getExternalStorageDirectory() + sep + engineDir + sep;
+        String base = networkEngineDir.getAbsolutePath() + File.separator;
         for (String fileName : fileNames) {
             ids[idx] = base + fileName;
             items[idx] = fileName;
@@ -3317,14 +4051,14 @@ public class DroidFish extends Activity
                 defaultItem = i;
                 break;
             }
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.configure_network_engine);
         builder.setSingleChoiceItems(items, defaultItem, (dialog, item) -> {
             if ((item < 0) || (item >= numItems))
                 return;
             dialog.dismiss();
             if (item == numItems - 1) {
-                showDialog(NEW_NETWORK_ENGINE_DIALOG);
+                showDroidFishDialog(NEW_NETWORK_ENGINE_DIALOG);
             } else {
                 networkEngineToConfig = ids[item];
                 reShowDialog(NETWORK_ENGINE_CONFIG_DIALOG);
@@ -3340,15 +4074,14 @@ public class DroidFish extends Activity
     // Ask for name of new network engine
     private Dialog newNetworkEngineDialog() {
         View content = View.inflate(this, R.layout.create_network_engine, null);
-        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        final AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setView(content);
         builder.setTitle(R.string.create_network_engine);
         final EditText engineNameView = content.findViewById(R.id.create_network_engine);
         engineNameView.setText("");
         final Runnable createEngine = () -> {
             String engineName = engineNameView.getText().toString();
-            String sep = File.separator;
-            String pathName = Environment.getExternalStorageDirectory() + sep + engineDir + sep + engineName;
+            String pathName = new File(StorageProvider.getEngineDir(), engineName).getAbsolutePath();
             File file = new File(pathName);
             boolean nameOk = true;
             int errMsg = -1;
@@ -3386,7 +4119,7 @@ public class DroidFish extends Activity
     // Configure network engine settings
     private Dialog networkEngineConfigDialog() {
         View content = View.inflate(this, R.layout.network_engine_config, null);
-        final AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        final AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setView(content);
         builder.setTitle(R.string.configure_network_engine);
         final EditText hostNameView = content.findViewById(R.id.network_engine_host);
@@ -3439,7 +4172,7 @@ public class DroidFish extends Activity
     }
 
     private Dialog deleteNetworkEngineDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        AlertDialog.Builder builder = new MaterialAlertDialogBuilder(this);
         builder.setTitle(R.string.delete_network_engine);
         String msg = networkEngineToConfig;
         if (msg.lastIndexOf('/') >= 0)
@@ -3468,17 +4201,27 @@ public class DroidFish extends Activity
         return builder.create();
     }
 
-    /** Open a load/save file dialog. Uses OI file manager if available. */
+    /** Open a load/save file dialog. Uses SAF on API 30+, OI file manager as fallback. */
     private void selectFile(int titleMsg, int buttonMsg, String settingsName, String defaultDir,
                             int dialog, int result) {
         setAutoMode(AutoMode.OFF);
+        if (Build.VERSION.SDK_INT >= 30) {
+            if (result == RESULT_OI_PGN_LOAD) {
+                openPgnLauncher.launch(new String[]{"application/x-chess-pgn", "application/vnd.chess-pgn", "*/*"});
+            } else if (result == RESULT_OI_FEN_LOAD) {
+                openFenLauncher.launch(new String[]{"*/*"});
+            } else if (result == RESULT_OI_PGN_SAVE) {
+                createPgnLauncher.launch("game.pgn");
+            } else {
+                reShowDialog(dialog);
+            }
+            return;
+        }
         String action = "org.openintents.action.PICK_FILE";
         Intent i = new Intent(action);
         String currentFile = settings.getString(settingsName, "");
-        String sep = File.separator;
-        if (!currentFile.contains(sep))
-            currentFile = Environment.getExternalStorageDirectory() +
-                          sep + defaultDir + sep + currentFile;
+        if (!currentFile.contains(File.separator))
+            currentFile = new File(new File(StorageProvider.getBaseDir(), defaultDir), currentFile).getAbsolutePath();
         i.setData(Uri.fromFile(new File(currentFile)));
         i.putExtra("org.openintents.extra.TITLE", getString(titleMsg));
         i.putExtra("org.openintents.extra.BUTTON_TEXT", getString(buttonMsg));
@@ -3543,9 +4286,8 @@ public class DroidFish extends Activity
         switch (ft) {
         case FT_PGN: {
             String ret = settings.getString("currentPGNFile", "");
-            String sep = File.separator;
-            if (!ret.contains(sep))
-                ret = Environment.getExternalStorageDirectory() + sep + pgnDir + sep + ret;
+            if (!ret.contains(File.separator))
+                ret = new File(StorageProvider.getPgnDir(), ret).getAbsolutePath();
             return ret;
         }
         case FT_SCID:
@@ -3582,8 +4324,7 @@ public class DroidFish extends Activity
 
     /** Get the full path to the auto-save file. */
     private static String getAutoSaveFile() {
-        String sep = File.separator;
-        return Environment.getExternalStorageDirectory() + sep + pgnDir + sep + ".autosave.pgn";
+        return new File(StorageProvider.getPgnDir(), ".autosave.pgn").getAbsolutePath();
     }
 
     @Override
@@ -3651,7 +4392,7 @@ public class DroidFish extends Activity
 
     @Override
     public void requestPromotePiece() {
-        showDialog(PROMOTE_DIALOG);
+        showDroidFishDialog(PROMOTE_DIALOG);
     }
 
     @Override
@@ -3673,7 +4414,13 @@ public class DroidFish extends Activity
     public void reportEngineError(String errMsg) {
         String msg = String.format(Locale.US, "%s: %s",
                                    getString(R.string.engine_error), errMsg);
-        DroidFishApp.toast(msg, Toast.LENGTH_LONG);
+        runOnUiThread(() -> {
+            new MaterialAlertDialogBuilder(DroidFish.this)
+                .setTitle(R.string.engine_error)
+                .setMessage(errMsg)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+        });
     }
 
     /** Initialize text to speech if enabled in settings. */
@@ -3746,7 +4493,7 @@ public class DroidFish extends Activity
             String contentTitle = getString(R.string.background_processing);
             String contentText = getString(R.string.lot_cpu_power);
             Intent notificationIntent = new Intent(this, CPUWarning.class);
-            PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+            PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
 
             Notification notification = new NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(icon)
@@ -3780,11 +4527,13 @@ public class DroidFish extends Activity
         return ret.toString();
     }
 
-    private Handler handlerTimer = new Handler();
+    private Handler handlerTimer = new Handler(Looper.getMainLooper());
     private Runnable r = () -> ctrl.updateRemainingTime();
 
     @Override
     public void setRemainingTime(int wTime, int bTime, int nextUpdate) {
+        if (engineMatchController != null && engineMatchController.isRunning())
+            return;
         if (ctrl.getGameMode().clocksActive()) {
             whiteTitleText.setText(getString(R.string.white_square_character) + " " + timeToString(wTime));
             blackTitleText.setText(getString(R.string.black_square_character) + " " + timeToString(bTime));
@@ -3799,7 +4548,7 @@ public class DroidFish extends Activity
             handlerTimer.postDelayed(r, nextUpdate);
     }
 
-    private Handler autoModeTimer = new Handler();
+    private Handler autoModeTimer = new Handler(Looper.getMainLooper());
     private Runnable amRunnable = () -> {
         switch (autoMode) {
         case BACKWARD:

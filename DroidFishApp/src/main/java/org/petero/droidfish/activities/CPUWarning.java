@@ -24,12 +24,14 @@ import org.petero.droidfish.R;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
-import android.app.DialogFragment;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Bundle;
 
-public class CPUWarning extends Activity {
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.DialogFragment;
+
+public class CPUWarning extends AppCompatActivity {
     public static class Fragment extends DialogFragment {
         @Override
         public Dialog onCreateDialog(Bundle savedInstanceState) {
@@ -51,7 +53,7 @@ public class CPUWarning extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         DialogFragment df = new Fragment();
-        df.show(getFragmentManager(), "");
+        df.show(getSupportFragmentManager(), "");
     }
 
     @Override

@@ -1,15 +1,21 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 28
+    namespace "org.petero.droidfish"
+    compileSdk 36
+    ndkVersion "27.2.12479018"
+    ndkPath "/opt/homebrew/share/android-ndk"
 
     defaultConfig {
-        applicationId "org.petero.droidfish"
-        minSdkVersion 16
-        targetSdkVersion 28
+        applicationId "org.petero.droidfish.modern"
+        minSdkVersion 21
+        targetSdkVersion 36
         versionCode 100
         versionName "1.90"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
         externalNativeBuild {
             ndkBuild {
                 arguments '-j8'
@@ -44,27 +50,30 @@ android {
         }
     }
 
-    lintOptions {
+    lint {
         abortOnError false
     }
+
     compileOptions {
-        sourceCompatibility = '1.8'
-        targetCompatibility = '1.8'
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     buildFeatures {
         dataBinding true
+        buildConfig true
     }
 }
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation 'androidx.appcompat:appcompat:1.1.0'
-    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
-    implementation 'com.google.android.material:material:1.1.0'
-    testImplementation 'junit:junit:4.13'
-    androidTestImplementation 'androidx.test:runner:1.2.0'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.preference:preference:1.2.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.android.material:material:1.11.0'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     implementation project(':CuckooChessEngine')
     implementation 'com.caverock:androidsvg-aar:1.4'
 }
@@ -79,18 +88,49 @@ preBuild.dependsOn buildEco
 
 // Copy Stockfish executables to assets directory
 task copyToAssets(type: Copy, dependsOn: 'externalNativeBuildRelease') {
-    from('build/intermediates/ndkBuild/release/obj/local') {
-        include '*/stockfish'
-        include '*/stockfish_nosimd'
+    from(fileTree('build/intermediates/cxx/Release').matching {
+        include '**/obj/local/*/stockfish'
+        include '**/obj/local/*/stockfish_nosimd'
+    }) {
+        eachFile { fcd ->
+            // Flatten to just ABI/filename (e.g. arm64-v8a/stockfish)
+            def segments = fcd.relativePath.segments
+            fcd.relativePath = new RelativePath(true, segments[-2], segments[-1])
+        }
+        includeEmptyDirs = false
     }
     into 'src/main/assets'
 }
-tasks.withType(JavaCompile) {
-    t -> t.dependsOn copyToAssets
+
+// Also copy Stockfish as native libraries to jniLibs so they are extracted
+// to nativeLibraryDir at install time (guaranteed exec permission on all Android versions)
+task copyToJniLibs(type: Copy, dependsOn: 'externalNativeBuildRelease') {
+    from(fileTree('build/intermediates/cxx/Release').matching {
+        include '**/obj/local/arm64-v8a/stockfish'
+        include '**/obj/local/arm64-v8a/stockfish_nosimd'
+        include '**/obj/local/arm64-v8a/exec_engine'
+    }) {
+        eachFile { fcd ->
+            def segments = fcd.relativePath.segments
+            def fileName = segments[-1]
+            def abi = segments[-2]
+            // Rename to lib*.so format so the system extracts them
+            fcd.relativePath = new RelativePath(true, abi, "lib${fileName}.so")
+        }
+        includeEmptyDirs = false
+    }
+    into 'src/main/jniLibs'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    dependsOn copyToAssets
+    dependsOn copyToJniLibs
 }
 android {
   applicationVariants.all { variant ->
     tasks["merge${variant.name.capitalize()}Assets"]
       .dependsOn(copyToAssets)
+    tasks["merge${variant.name.capitalize()}JniLibFolders"]
+      .dependsOn(copyToJniLibs)
   }
 }

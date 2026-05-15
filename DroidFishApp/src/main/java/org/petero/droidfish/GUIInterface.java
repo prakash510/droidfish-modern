@@ -59,6 +59,10 @@ public interface GUIInterface {
         public ArrayList<Move> bookMoves;
         public String eco;
         public int distToEcoTree;
+        /** Engine evaluation score in centipawns from WHITE's perspective. */
+        public int evalScore;
+        /** True if evalScore represents a mate-in-N (N = abs(evalScore)). */
+        public boolean evalIsMate;
     }
 
     /** Update the computer thinking information. */

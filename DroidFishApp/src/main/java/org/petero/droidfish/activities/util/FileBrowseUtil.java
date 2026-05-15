@@ -21,6 +21,7 @@ package org.petero.droidfish.activities.util;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.os.Build;
 import android.graphics.drawable.StateListDrawable;
 import android.util.TypedValue;
 import android.view.View;
@@ -41,6 +42,8 @@ public class FileBrowseUtil {
     }
 
     public static boolean hasBrowser(PackageManager pMan, boolean pickDirectory) {
+        if (Build.VERSION.SDK_INT >= 30)
+            return true;
         Intent browser = new Intent(getPickAction(pickDirectory));
         return browser.resolveActivity(pMan) != null;
     }

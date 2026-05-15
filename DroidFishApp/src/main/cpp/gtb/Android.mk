@@ -23,5 +23,6 @@ LOCAL_CFLAGS    := \
 	-I $(LOCAL_PATH)/compression/liblzf/ -I $(LOCAL_PATH)/compression/zlib/ \
 	-I $(LOCAL_PATH)/compression/lzma/ -I $(LOCAL_PATH)/compression/huffman/ \
 	-D Z_PREFIX -D NDEBUG -Wall
+LOCAL_LDFLAGS   := -Wl,-z,max-page-size=16384
 
 include $(BUILD_SHARED_LIBRARY)

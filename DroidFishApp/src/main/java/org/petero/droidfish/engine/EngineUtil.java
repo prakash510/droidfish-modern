@@ -35,7 +35,7 @@ public class EngineUtil {
 
     /** Return file name of the internal stockfish executable. */
     public static String internalStockFishName() {
-        String abi = Build.CPU_ABI;
+        String abi = Build.SUPPORTED_ABIS[0];
         if (!"x86".equals(abi) &&
                 !"x86_64".equals(abi) &&
                 !"arm64-v8a".equals(abi)) {

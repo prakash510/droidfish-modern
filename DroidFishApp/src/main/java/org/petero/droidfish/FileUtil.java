@@ -19,7 +19,6 @@
 package org.petero.droidfish;
 
 import android.net.Uri;
-import android.os.Environment;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -93,9 +92,10 @@ public class FileUtil {
     }
 
     public static String[] findFilesInDirectory(String dirName, final FileNameFilter filter) {
-        File extDir = Environment.getExternalStorageDirectory();
-        String sep = File.separator;
-        File dir = new File(extDir.getAbsolutePath() + sep + dirName);
+        return findFilesInDirectory(new File(StorageProvider.getBaseDir(), dirName), filter);
+    }
+
+    public static String[] findFilesInDirectory(File dir, final FileNameFilter filter) {
         File[] files = dir.listFiles(pathname -> {
             if (!pathname.isFile())
                 return false;
@@ -114,6 +114,25 @@ public class FileUtil {
     public static String getFilePathFromUri(Uri uri) {
         if (uri == null)
             return null;
+        String scheme = uri.getScheme();
+        if ("file".equals(scheme)) {
+            return uri.getPath();
+        }
+        if ("content".equals(scheme)) {
+            // For content URIs, try the path segment (works for some providers)
+            String path = uri.getPath();
+            if (path != null && path.startsWith("/document/")) {
+                // DocumentProvider paths like /document/primary:path/to/file
+                String docPath = path.substring("/document/".length());
+                int colonIdx = docPath.indexOf(':');
+                if (colonIdx >= 0) {
+                    String filePath = docPath.substring(colonIdx + 1);
+                    File f = new File(StorageProvider.getBaseDir().getParentFile(), filePath);
+                    if (f.exists())
+                        return f.getAbsolutePath();
+                }
+            }
+        }
         return uri.getPath();
     }
 }

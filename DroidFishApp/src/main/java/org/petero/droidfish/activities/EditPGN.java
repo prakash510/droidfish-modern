@@ -60,7 +60,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Locale;
 
-public abstract class EditPGN extends AppCompatActivity {
+public abstract class EditPGN extends AppCompatActivity implements org.petero.droidfish.DialogHost {
     private static ArrayList<GameInfo> gamesInFile = new ArrayList<>();
     private static boolean cacheValid = false;
     private PGNFile pgnFile;
@@ -119,7 +119,7 @@ public abstract class EditPGN extends AppCompatActivity {
         if ("org.petero.droidfish.loadFile".equals(action)) {
             pgnFile = new PGNFile(fileName);
             loadGame = true;
-            showDialog(PROGRESS_DIALOG);
+            showDroidFishDialog(PROGRESS_DIALOG);
             workThread = new Thread(() -> {
                 if (!readFile())
                     return;
@@ -174,7 +174,7 @@ public abstract class EditPGN extends AppCompatActivity {
             String token = i.getStringExtra("org.petero.droidfish.pgn");
             pgnToSave = (new ObjectCache()).retrieveString(token);
             pgnFile = new PGNFile(fileName);
-            showDialog(PROGRESS_DIALOG);
+            showDroidFishDialog(PROGRESS_DIALOG);
             workThread = new Thread(() -> {
                 if (!readFile())
                     return;
@@ -254,25 +254,26 @@ public abstract class EditPGN extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-        case R.id.item_delete_file:
+        int id = item.getItemId();
+        if (id == R.id.item_delete_file) {
             reShowDialog(DELETE_PGN_FILE_DIALOG);
-            break;
-        case R.id.regexp_search:
+        } else if (id == R.id.regexp_search) {
             useRegExp = !useRegExp;
             item.setChecked(useRegExp);
             if (binding != null) {
                 String s = binding.selectGameFilter.getText().toString();
                 setFilterString(s);
             }
-            break;
         }
         return false;
     }
 
     private void showList() {
         progress = null;
-        removeDialog(PROGRESS_DIALOG);
+        String tag = "epgn_dialog_" + PROGRESS_DIALOG;
+        androidx.fragment.app.Fragment f = getSupportFragmentManager().findFragmentByTag(tag);
+        if (f instanceof androidx.fragment.app.DialogFragment)
+            ((androidx.fragment.app.DialogFragment) f).dismissAllowingStateLoss();
         binding = DataBindingUtil.setContentView(this, R.layout.select_game);
         Util.overrideViewAttribs(findViewById(android.R.id.content));
         createAdapter();
@@ -344,16 +345,20 @@ public abstract class EditPGN extends AppCompatActivity {
     final static int SAVE_GAME_DIALOG = 2;
     final static int DELETE_PGN_FILE_DIALOG = 3;
 
-    /**
-     * Remove and show a dialog.
-     */
     private void reShowDialog(int id) {
-        removeDialog(id);
-        showDialog(id);
+        showDroidFishDialog(id);
+    }
+
+    private void showDroidFishDialog(int id) {
+        String tag = "epgn_dialog_" + id;
+        androidx.fragment.app.Fragment existing = getSupportFragmentManager().findFragmentByTag(tag);
+        if (existing instanceof androidx.fragment.app.DialogFragment)
+            ((androidx.fragment.app.DialogFragment) existing).dismissAllowingStateLoss();
+        org.petero.droidfish.DroidFishDialogFragment.newInstance(id).show(getSupportFragmentManager(), tag);
     }
 
     @Override
-    protected Dialog onCreateDialog(int id) {
+    public Dialog createDialogById(int id) {
         switch (id) {
         case PROGRESS_DIALOG:
             progress = new ProgressDialog(this);

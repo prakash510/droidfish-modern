@@ -808,6 +808,19 @@ public class DroidChessController {
             ti.distToEcoTree = distToEcoTree;
             ti.pvMoves = pvMoves;
             ti.bookMoves = bookMoves;
+            // Populate eval score from the first PV line, always from white's perspective
+            if (!pvInfoV.isEmpty()) {
+                PvInfo firstPv = pvInfoV.get(0);
+                if (firstPv.depth > 0) {
+                    int score = firstPv.score;
+                    // UCI scores are from side-to-move's perspective; convert to white's
+                    if (!whiteMove) {
+                        score = -score;
+                    }
+                    ti.evalScore = score;
+                    ti.evalIsMate = firstPv.isMate;
+                }
+            }
             latestThinkingInfo = ti;
             gui.runOnUIThread(() -> setThinkingInfo(ti));
         }

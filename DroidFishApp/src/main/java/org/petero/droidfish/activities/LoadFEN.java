@@ -18,8 +18,8 @@
 
 package org.petero.droidfish.activities;
 
-import android.app.ListActivity;
 import android.content.Context;
+import androidx.appcompat.app.AppCompatActivity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
@@ -51,7 +51,7 @@ import org.petero.droidfish.gamelogic.TextIO;
 import java.io.File;
 import java.util.ArrayList;
 
-public class LoadFEN extends ListActivity {
+public class LoadFEN extends AppCompatActivity {
     private static ArrayList<FenInfo> fensInFile = new ArrayList<>();
     private static boolean cacheValid = false;
     private FENFile fenFile;
@@ -190,8 +190,8 @@ public class LoadFEN extends ListActivity {
                 return view;
             }
         };
-        setListAdapter(aa);
-        final ListView lv = getListView();
+        final ListView lv = findViewById(android.R.id.list);
+        lv.setAdapter(aa);
         lv.setSelectionFromTop(defaultItem, 0);
         lv.setFastScrollEnabled(true);
         lv.setOnItemClickListener((parent, view, pos, id) -> {

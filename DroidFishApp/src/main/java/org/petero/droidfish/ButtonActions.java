@@ -18,7 +18,6 @@
 
 package org.petero.droidfish;
 
-import android.app.Activity;
 import android.content.SharedPreferences;
 import android.view.View;
 import android.widget.ImageButton;
@@ -57,7 +56,7 @@ public class ButtonActions {
     }
 
     /** Connect GUI button. */
-    public void setImageButton(ImageButton button, final Activity activity) {
+    public void setImageButton(ImageButton button, final DroidFish activity) {
         this.button = button;
         button.setOnClickListener(v -> {
             if (mainAction != null) {
@@ -70,7 +69,7 @@ public class ButtonActions {
         button.setOnLongClickListener(v -> showMenu(activity));
     }
 
-    private boolean showMenu(Activity activity) {
+    private boolean showMenu(DroidFish activity) {
         boolean haveActions = false;
         boolean haveEnabledActions = false;
         for (UIAction a : menuActions) {
@@ -82,8 +81,7 @@ public class ButtonActions {
         }
         if (haveActions) {
             if (haveEnabledActions) {
-                activity.removeDialog(longClickDialog);
-                activity.showDialog(longClickDialog);
+                activity.reShowDialog(longClickDialog);
             }
             return true;
         }

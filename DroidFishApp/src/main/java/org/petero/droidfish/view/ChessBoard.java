@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.petero.droidfish.BoardTheme;
 import org.petero.droidfish.ColorTheme;
 import org.petero.droidfish.PieceSet;
 import org.petero.droidfish.gamelogic.Move;
@@ -38,6 +39,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -62,6 +64,10 @@ public abstract class ChessBoard extends View {
     public boolean blindMode;                 // If true, no chess pieces and arrows are drawn
 
     private List<Move> moveHints;
+    private Move lastMoveArrow;
+    private Paint lastMoveArrowPaint;
+    private Paint legalMovesDotPaint;
+    private List<Integer> legalMoveTargets;
 
     /** Decoration for a square. Currently the only possible decoration is a tablebase probe result. */
     public final static class SquareDecoration implements Comparable<SquareDecoration> {
@@ -81,10 +87,14 @@ public abstract class ChessBoard extends View {
     protected Paint darkPaint;
     protected Paint brightPaint;
     private Paint selectedSquarePaint;
+    private Paint selectedDarkPaint;
+    private Paint selectedBrightPaint;
     private Paint piecePaint;
+    private Paint pieceShadowPaint;
     private Paint labelPaint;
     private Paint decorationPaint;
     private ArrayList<Paint> moveMarkPaint;
+    private Paint texturePaint;
 
     public ChessBoard(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -102,11 +112,29 @@ public abstract class ChessBoard extends View {
         brightPaint = new Paint();
 
         selectedSquarePaint = new Paint();
-        selectedSquarePaint.setStyle(Paint.Style.STROKE);
-        selectedSquarePaint.setAntiAlias(true);
+        selectedSquarePaint.setStyle(Paint.Style.FILL);
+
+        selectedDarkPaint = new Paint();
+        selectedDarkPaint.setStyle(Paint.Style.FILL);
+
+        selectedBrightPaint = new Paint();
+        selectedBrightPaint.setStyle(Paint.Style.FILL);
+
+        legalMovesDotPaint = new Paint();
+        legalMovesDotPaint.setStyle(Paint.Style.FILL);
+        legalMovesDotPaint.setAntiAlias(true);
+        legalMovesDotPaint.setColor(0x40000000);
 
         piecePaint = new Paint();
         piecePaint.setAntiAlias(true);
+        piecePaint.setFilterBitmap(true);
+
+        pieceShadowPaint = new Paint();
+        pieceShadowPaint.setAntiAlias(true);
+        pieceShadowPaint.setFilterBitmap(true);
+        pieceShadowPaint.setAlpha(50);
+        pieceShadowPaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(
+            new float[]{0,0,0,0,0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,1,0}));
 
         labelPaint = new Paint();
         labelPaint.setAntiAlias(true);
@@ -122,27 +150,91 @@ public abstract class ChessBoard extends View {
             moveMarkPaint.add(p);
         }
 
+        lastMoveArrowPaint = new Paint();
+        lastMoveArrowPaint.setStyle(Paint.Style.FILL);
+        lastMoveArrowPaint.setAntiAlias(true);
+        lastMoveArrowPaint.setColor(0xC0e6c84a);
+
+        texturePaint = new Paint();
+        texturePaint.setFilterBitmap(true);
+
         if (isInEditMode())
             return;
 
         setColors();
     }
 
+    private boolean useBlendedSelection;
+    private float boardBrightness = 1.0f;
+
+    public final void setBoardBrightness(float brightness) {
+        this.boardBrightness = brightness;
+        setColors();
+    }
+
+    public float getBoardBrightness() {
+        return boardBrightness;
+    }
+
     /** Must be called for new color theme to take effect. */
     public final void setColors() {
         ColorTheme ct = ColorTheme.instance();
-        darkPaint.setColor(ct.getColor(ColorTheme.DARK_SQUARE));
-        brightPaint.setColor(ct.getColor(ColorTheme.BRIGHT_SQUARE));
-        selectedSquarePaint.setColor(ct.getColor(ColorTheme.SELECTED_SQUARE));
+        int darkColor = applyBrightness(ct.getColor(ColorTheme.DARK_SQUARE));
+        int brightColor = applyBrightness(ct.getColor(ColorTheme.BRIGHT_SQUARE));
+        darkPaint.setColor(darkColor);
+        brightPaint.setColor(brightColor);
+        if (boardBrightness != 1.0f) {
+            float b = boardBrightness;
+            texturePaint.setColorFilter(new android.graphics.ColorMatrixColorFilter(new float[]{
+                b,0,0,0,0, 0,b,0,0,0, 0,0,b,0,0, 0,0,0,1,0}));
+        } else {
+            texturePaint.setColorFilter(null);
+        }
+        int selColor = ct.getColor(ColorTheme.SELECTED_SQUARE);
+        int selAlpha = (selColor >>> 24) & 0xFF;
+        useBlendedSelection = selAlpha < 0xFF;
+        if (useBlendedSelection) {
+            int opaqueSelColor = selColor | 0xFF000000;
+            selectedDarkPaint.setColor(blendHighlight(darkColor, opaqueSelColor, 0.35f));
+            selectedBrightPaint.setColor(blendHighlight(brightColor, opaqueSelColor, 0.35f));
+            int overlayAlpha = Math.min(selAlpha, 0x33);
+            selectedSquarePaint.setColor((selColor & 0x00FFFFFF) | (overlayAlpha << 24));
+            selectedSquarePaint.setStyle(Paint.Style.FILL);
+        } else {
+            selectedSquarePaint.setColor(selColor);
+            selectedSquarePaint.setStyle(Paint.Style.STROKE);
+        }
         labelPaint.setColor(ct.getColor(ColorTheme.SQUARE_LABEL));
         decorationPaint.setColor(ct.getColor(ColorTheme.DECORATION));
         for (int i = 0; i < ColorTheme.MAX_ARROWS; i++)
             moveMarkPaint.get(i).setColor(ct.getColor(ColorTheme.ARROW_0 + i));
+        lastMoveArrowPaint.setColor(0xC0e6c84a);
 
         invalidate();
     }
 
-    private Handler handlerTimer = new Handler();
+    private int applyBrightness(int color) {
+        if (boardBrightness == 1.0f) return color;
+        int r = Math.min(255, (int)(((color >> 16) & 0xFF) * boardBrightness));
+        int g = Math.min(255, (int)(((color >> 8) & 0xFF) * boardBrightness));
+        int b = Math.min(255, (int)((color & 0xFF) * boardBrightness));
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private static int blendHighlight(int baseColor, int highlightColor, float amount) {
+        int r1 = (baseColor >> 16) & 0xFF;
+        int g1 = (baseColor >> 8) & 0xFF;
+        int b1 = baseColor & 0xFF;
+        int r2 = (highlightColor >> 16) & 0xFF;
+        int g2 = (highlightColor >> 8) & 0xFF;
+        int b2 = highlightColor & 0xFF;
+        int r = r1 + (int)((r2 - r1) * amount);
+        int g = g1 + (int)((g2 - g1) * amount);
+        int b = b1 + (int)((b2 - b1) * amount);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private Handler handlerTimer = new Handler(Looper.getMainLooper());
 
     private final class AnimInfo {
         AnimInfo() { startTime = -1; }
@@ -377,6 +469,8 @@ public abstract class ChessBoard extends View {
     public final void setSelection(int square) {
         if (square != selectedSquare) {
             selectedSquare = square;
+            if (square == -1)
+                legalMoveTargets = null;
             invalidate();
         }
         userSelectedSquare = true;
@@ -428,15 +522,28 @@ public abstract class ChessBoard extends View {
         labelPaint.setTextSize(sqSize/4.0f);
         decorationPaint.setTextSize(sqSize/3.0f);
         computeOrigin(width, height);
+        BoardTheme bt = BoardTheme.instance();
+        boolean hasTexture = bt.hasTexture();
         for (int x = 0; x < 8; x++) {
             for (int y = 0; y < 8; y++) {
                 XYCoord crd = sqToPix(x, y);
                 final int xCrd = crd.x;
                 final int yCrd = crd.y;
-                Paint paint = Position.darkSquare(x, y) ? darkPaint : brightPaint;
-                canvas.drawRect(xCrd, yCrd, xCrd+sqSize, yCrd+sqSize, paint);
-
                 int sq = Position.getSquare(x, y);
+                boolean isSelected = !animActive && (sq == selectedSquare);
+                if (hasTexture) {
+                    bt.drawSquare(canvas, x, y, xCrd, yCrd, sqSize, flipped, texturePaint);
+                    if (isSelected) {
+                        canvas.drawRect(xCrd, yCrd, xCrd+sqSize, yCrd+sqSize, selectedSquarePaint);
+                    }
+                } else if (useBlendedSelection && isSelected) {
+                    Paint paint = Position.darkSquare(x, y) ? selectedDarkPaint : selectedBrightPaint;
+                    canvas.drawRect(xCrd, yCrd, xCrd+sqSize, yCrd+sqSize, paint);
+                } else {
+                    Paint paint = Position.darkSquare(x, y) ? darkPaint : brightPaint;
+                    canvas.drawRect(xCrd, yCrd, xCrd+sqSize, yCrd+sqSize, paint);
+                }
+
                 if (!(animActive && anim.squareHidden(sq) || sq == dragSquare)) {
                     int p = pos.getPiece(sq);
                     drawPiece(canvas, xCrd, yCrd, p);
@@ -453,15 +560,17 @@ public abstract class ChessBoard extends View {
         }
         drawExtraSquares(canvas);
         if (!animActive && (selectedSquare != -1)) {
-            int selX = getXFromSq(selectedSquare);
-            int selY = getYFromSq(selectedSquare);
-            selectedSquarePaint.setStrokeWidth(sqSize/(float)16);
-            XYCoord crd = sqToPix(selX, selY);
-            int x0 = crd.x;
-            int y0 = crd.y;
-            canvas.drawRect(x0, y0, x0 + sqSize, y0 + sqSize, selectedSquarePaint);
+            if (!useBlendedSelection && !hasTexture) {
+                int selX = getXFromSq(selectedSquare);
+                int selY = getYFromSq(selectedSquare);
+                selectedSquarePaint.setStrokeWidth(sqSize / (float) 16);
+                XYCoord selCrd = sqToPix(selX, selY);
+                canvas.drawRect(selCrd.x, selCrd.y, selCrd.x + sqSize, selCrd.y + sqSize, selectedSquarePaint);
+            }
+            drawLegalMoveDots(canvas);
         }
         if (!animActive) {
+            drawLastMoveArrow(canvas);
             drawMoveHints(canvas);
             drawDecorations(canvas);
         }
@@ -478,6 +587,48 @@ public abstract class ChessBoard extends View {
 
 //      long t1 = System.currentTimeMillis();
 //      System.out.printf("draw: %d\n", t1-t0);
+    }
+
+    private void drawLastMoveArrow(Canvas canvas) {
+        if (lastMoveArrow == null || lastMoveArrow.from == lastMoveArrow.to || blindMode)
+            return;
+        float center = (float)(sqSize / 2.0);
+        float h = (float)(sqSize / 4.0);
+        float d = (float)(sqSize / 8.0);
+        double v = 35 * Math.PI / 180;
+        double cosv = Math.cos(v);
+        double sinv = Math.sin(v);
+        double tanv = Math.tan(v);
+        XYCoord crd0 = sqToPix(Position.getX(lastMoveArrow.from), Position.getY(lastMoveArrow.from));
+        XYCoord crd1 = sqToPix(Position.getX(lastMoveArrow.to), Position.getY(lastMoveArrow.to));
+        float x0 = crd0.x + center;
+        float y0 = crd0.y + center;
+        float x1 = crd1.x + center;
+        float y1 = crd1.y + center;
+        float x2 = (float)(Math.hypot(x1 - x0, y1 - y0) + d);
+        float y2 = 0;
+        float x3 = (float)(x2 - h * cosv);
+        float y3 = (float)(y2 - h * sinv);
+        float x4 = (float)(x3 - d * sinv);
+        float y4 = (float)(y3 + d * cosv);
+        float x5 = (float)(x4 + (-d/2 - y4) / tanv);
+        float y5 = -d / 2;
+        float x6 = 0;
+        float y6 = y5 / 2;
+        Path path = new Path();
+        path.moveTo(x2, y2);
+        path.lineTo(x3, y3);
+        path.lineTo(x5, y5);
+        path.lineTo(x6, y6);
+        path.lineTo(x6, -y6);
+        path.lineTo(x5, -y5);
+        path.lineTo(x3, -y3);
+        path.close();
+        Matrix mtx = new Matrix();
+        mtx.postRotate((float)(Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI));
+        mtx.postTranslate(x0, y0);
+        path.transform(mtx);
+        canvas.drawPath(path, lastMoveArrowPaint);
     }
 
     private void drawMoveHints(Canvas canvas) {
@@ -544,6 +695,8 @@ public abstract class ChessBoard extends View {
                 canvas.save();
                 canvas.rotate(180, xCrd + sqSize * 0.5f, yCrd + sqSize * 0.5f);
             }
+            int shadowOffset = Math.max(1, sqSize / 32);
+            canvas.drawBitmap(bm, xCrd + shadowOffset, yCrd + shadowOffset, pieceShadowPaint);
             canvas.drawBitmap(bm, xCrd, yCrd, piecePaint);
             if (rotate)
                 canvas.restore();
@@ -631,6 +784,20 @@ public abstract class ChessBoard extends View {
 
     protected abstract int getSquare(int x, int y);
 
+    public final void setLastMoveArrow(Move move) {
+        if (this.lastMoveArrow != move) {
+            this.lastMoveArrow = move;
+            invalidate();
+        }
+    }
+
+    public final void clearLastMoveArrow() {
+        if (this.lastMoveArrow != null) {
+            this.lastMoveArrow = null;
+            invalidate();
+        }
+    }
+
     public final void setMoveHints(List<Move> moveHints) {
         boolean equal;
         if ((this.moveHints == null) || (moveHints == null)) {
@@ -641,6 +808,33 @@ public abstract class ChessBoard extends View {
         if (!equal) {
             this.moveHints = moveHints;
             invalidate();
+        }
+    }
+
+    public final void setLegalMoveTargets(List<Integer> targets) {
+        this.legalMoveTargets = targets;
+        invalidate();
+    }
+
+    private void drawLegalMoveDots(Canvas canvas) {
+        if (legalMoveTargets == null || legalMoveTargets.isEmpty())
+            return;
+        float radius = sqSize * 0.15f;
+        float captureRadius = sqSize * 0.4f;
+        for (int sq : legalMoveTargets) {
+            int x = getXFromSq(sq);
+            int y = getYFromSq(sq);
+            XYCoord crd = sqToPix(x, y);
+            float cx = crd.x + sqSize / 2.0f;
+            float cy = crd.y + sqSize / 2.0f;
+            if (pos.getPiece(sq) != Piece.EMPTY) {
+                legalMovesDotPaint.setStyle(Paint.Style.STROKE);
+                legalMovesDotPaint.setStrokeWidth(sqSize * 0.08f);
+                canvas.drawCircle(cx, cy, captureRadius, legalMovesDotPaint);
+                legalMovesDotPaint.setStyle(Paint.Style.FILL);
+            } else {
+                canvas.drawCircle(cx, cy, radius, legalMovesDotPaint);
+            }
         }
     }
 

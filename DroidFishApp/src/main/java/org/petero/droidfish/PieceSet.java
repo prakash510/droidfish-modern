@@ -85,10 +85,15 @@ public class PieceSet {
 
         String[] sa = {
                 defaultPieceSet,
-                "alfonso", "alpha", "cburnett", "chessicons", "chessmonk",
-                "freestaunton", "kilfiger", "leipzig", "magnetic", "maya",
-                "merida", "merida_new", "metaltops", "pirat", "regular",
-                "wikimedia",
+                "alfonso", "alpha", "anarcandy", "caliente", "california",
+                "cardinal", "cburnett", "celtic", "chess7", "chessicons",
+                "chessmonk", "chessnut", "companion", "cooke", "dubrovny",
+                "fantasy", "firi", "freestaunton", "fresca", "gioco",
+                "governor", "horsey", "icpieces", "kilfiger", "kiwen-suwi",
+                "kosal", "leipzig", "maestro", "magnetic", "maya", "merida",
+                "merida_new", "metaltops", "mpchess", "pirat", "pirouetti",
+                "pixel", "regular", "reillycraig", "rhosgfx", "riohacha",
+                "spatial", "staunty", "tatiana", "wikimedia",
         };
         availPieceSets = new HashSet<>(Arrays.asList(sa));
 

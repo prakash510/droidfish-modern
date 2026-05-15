@@ -48,11 +48,25 @@
     <PreferenceCategory
         android:title="@string/prefs_hints">
         <CheckBoxPreference
-            android:key="showThinking" 
-            android:title="@string/prefs_showThinking_title" 
-            android:summary="@string/prefs_showThinking_summary" 
+            android:key="showThinking"
+            android:title="@string/prefs_showThinking_title"
+            android:summary="@string/prefs_showThinking_summary"
             android:defaultValue="false">
         </CheckBoxPreference>
+        <CheckBoxPreference
+            android:key="evalBarHvE"
+            android:title="@string/prefs_evalBarHvE_title"
+            android:summary="@string/prefs_evalBarHvE_summary"
+            android:defaultValue="false">
+        </CheckBoxPreference>
+        <ListPreference
+            android:key="evalBarAnalysis"
+            android:title="@string/prefs_evalBarAnalysis_title"
+            android:summary="@string/prefs_evalBarAnalysis_summary"
+            android:entryValues="@array/evalBarAnalysis_values"
+            android:entries="@array/evalBarAnalysis_texts"
+            android:defaultValue="textOnly">
+        </ListPreference>
         <CheckBoxPreference
             android:key="whiteBasedScores"
             android:title="@string/prefs_whiteBasedScores_title"

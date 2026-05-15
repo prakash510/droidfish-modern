@@ -18,8 +18,8 @@
 
 package org.petero.cuckoochess;
 
-import android.app.Activity;
 import android.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
 import android.app.Dialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -49,7 +49,7 @@ import chess.TextIO;
 import guibase.ChessController;
 import guibase.GUIInterface;
 
-public class CuckooChess extends Activity implements GUIInterface {
+public class CuckooChess extends AppCompatActivity implements GUIInterface {
     ChessController ctrl;
     boolean mShowThinking;
     int mTimeLimit;
@@ -195,22 +195,21 @@ public class CuckooChess extends Activity implements GUIInterface {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.item_new_game:
-                ctrl.newGame(playerWhite, ttLogSize, false);
-                ctrl.startGame();
-                return true;
-            case R.id.item_undo:
-                ctrl.takeBackMove();
-                return true;
-            case R.id.item_redo:
-                ctrl.redoMove();
-                return true;
-            case R.id.item_settings: {
-                Intent i = new Intent(CuckooChess.this, Preferences.class);
-                startActivityForResult(i, 0);
-                return true;
-            }
+        int id = item.getItemId();
+        if (id == R.id.item_new_game) {
+            ctrl.newGame(playerWhite, ttLogSize, false);
+            ctrl.startGame();
+            return true;
+        } else if (id == R.id.item_undo) {
+            ctrl.takeBackMove();
+            return true;
+        } else if (id == R.id.item_redo) {
+            ctrl.redoMove();
+            return true;
+        } else if (id == R.id.item_settings) {
+            Intent i = new Intent(CuckooChess.this, Preferences.class);
+            startActivityForResult(i, 0);
+            return true;
         }
         return false;
     }

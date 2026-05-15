@@ -38,8 +38,8 @@ import org.petero.droidfish.tb.ProbeResult;
 import org.petero.droidfish.view.ChessBoard.SquareDecoration;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -52,6 +52,7 @@ import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.preference.PreferenceManager;
 import androidx.core.view.MotionEventCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
@@ -74,7 +75,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 @SuppressLint("ClickableViewAccessibility")
-public class EditBoard extends Activity {
+public class EditBoard extends AppCompatActivity implements org.petero.droidfish.DialogHost {
     private ChessBoardEdit cb;
     private TextView status;
 
@@ -92,6 +93,7 @@ public class EditBoard extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
+        setupBackHandler();
 
         figNotation = Typeface.createFromAsset(getAssets(), "fonts/DroidFishChessNotationDark.otf");
 
@@ -137,6 +139,19 @@ public class EditBoard extends Activity {
     private void initUI() {
         setContentView(R.layout.editboard);
         Util.overrideViewAttribs(findViewById(R.id.main));
+
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        View mainView = findViewById(R.id.main);
+        View leftContainer = findViewById(R.id.left_drawer_container);
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(
+                findViewById(R.id.drawer_layout), (v, windowInsets) -> {
+            androidx.core.graphics.Insets insets = windowInsets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            mainView.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+            if (leftContainer != null)
+                leftContainer.setPadding(0, insets.top, 0, insets.bottom);
+            return androidx.core.view.WindowInsetsCompat.CONSUMED;
+        });
 
         View firstTitleLine = findViewById(R.id.first_title_line);
         View secondTitleLine = findViewById(R.id.second_title_line);
@@ -188,7 +203,7 @@ public class EditBoard extends Activity {
         cb.setOnTouchListener(new OnTouchListener() {
             private boolean pending = false;
             private int sq0 = -1;
-            private Handler handler = new Handler();
+            private Handler handler = new Handler(Looper.getMainLooper());
             private Runnable runnable = new Runnable() {
                 public void run() {
                     pending = false;
@@ -278,7 +293,7 @@ public class EditBoard extends Activity {
             DrawerItem di = leftItems.get(position);
             switch (di.id) {
             case SIDE_TO_MOVE:
-                showDialog(SIDE_DIALOG);
+                showDroidFishDialog(SIDE_DIALOG);
                 setSelection(-1);
                 checkValidAndUpdateMaterialDiff();
                 break;
@@ -410,13 +425,13 @@ public class EditBoard extends Activity {
         checkValidAndUpdateMaterialDiff();
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            sendBackResult();
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+    private void setupBackHandler() {
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                sendBackResult();
+            }
+        });
     }
 
     private void sendBackResult() {
@@ -491,14 +506,20 @@ public class EditBoard extends Activity {
     static final int EP_DIALOG = 3;
     static final int MOVCNT_DIALOG = 4;
 
-    /** Remove and show a dialog. */
     private void reShowDialog(int id) {
-        removeDialog(id);
-        showDialog(id);
+        showDroidFishDialog(id);
+    }
+
+    private void showDroidFishDialog(int id) {
+        String tag = "eb_dialog_" + id;
+        androidx.fragment.app.Fragment existing = getSupportFragmentManager().findFragmentByTag(tag);
+        if (existing instanceof androidx.fragment.app.DialogFragment)
+            ((androidx.fragment.app.DialogFragment) existing).dismissAllowingStateLoss();
+        org.petero.droidfish.DroidFishDialogFragment.newInstance(id).show(getSupportFragmentManager(), tag);
     }
 
     @Override
-    protected Dialog onCreateDialog(int id) {
+    public Dialog createDialogById(int id) {
         switch (id) {
         case SIDE_DIALOG: {
             AlertDialog.Builder builder = new AlertDialog.Builder(this);

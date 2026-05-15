@@ -31,7 +31,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Locale;
 
-import android.os.Environment;
+import org.petero.droidfish.StorageProvider;
 
 import org.petero.droidfish.EngineOptions;
 
@@ -47,8 +47,7 @@ public class InternalStockFish extends ExternalEngine {
 
     @Override
     protected File getOptionsFile() {
-        File extDir = Environment.getExternalStorageDirectory();
-        return new File(extDir, "/DroidFish/uci/stockfish.ini");
+        return new File(StorageProvider.getEngineDir(), "stockfish.ini");
     }
 
     @Override
@@ -105,6 +104,14 @@ public class InternalStockFish extends ExternalEngine {
 
     @Override
     protected String copyFile(File from, File exeDir) throws IOException {
+        // Try nativeLibraryDir first — guaranteed exec permission on all Android versions
+        String nativeExe = getNativeLibExe();
+        if (nativeExe != null && new File(nativeExe).canExecute()) {
+            copyNetFiles(exeDir);
+            return nativeExe;
+        }
+
+        // Fallback: copy from assets to private storage
         File to = new File(exeDir, "engine.exe");
         final String sfExe = EngineUtil.internalStockFishName();
 
@@ -118,6 +125,14 @@ public class InternalStockFish extends ExternalEngine {
         }
         copyNetFiles(exeDir);
         return to.getAbsolutePath();
+    }
+
+    /** Get path to stockfish in nativeLibraryDir (extracted from jniLibs at install). */
+    private String getNativeLibExe() {
+        String nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
+        String sfName = EngineUtil.isSimdSupported() ? "libstockfish.so" : "libstockfish_nosimd.so";
+        File f = new File(nativeLibDir, sfName);
+        return f.exists() ? f.getAbsolutePath() : null;
     }
 
     /** Copy the Stockfish default network files to "exeDir" if they are not already there. */

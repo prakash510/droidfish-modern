@@ -18,37 +18,37 @@
 
 package org.petero.droidfish.activities;
 
-import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import androidx.appcompat.app.AppCompatActivity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.view.KeyEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 
-import androidx.databinding.DataBindingUtil;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.Spinner;
+import android.widget.TextView;
+import android.widget.ToggleButton;
 
 import org.petero.droidfish.DroidFishApp;
 import org.petero.droidfish.FileUtil;
 import org.petero.droidfish.R;
 import org.petero.droidfish.Util;
 import org.petero.droidfish.activities.util.FileBrowseUtil;
-import org.petero.droidfish.databinding.EditoptionsBinding;
-import org.petero.droidfish.databinding.UciOptionButtonBinding;
-import org.petero.droidfish.databinding.UciOptionCheckBinding;
-import org.petero.droidfish.databinding.UciOptionComboBinding;
-import org.petero.droidfish.databinding.UciOptionSpinBinding;
-import org.petero.droidfish.databinding.UciOptionStringBinding;
 import org.petero.droidfish.engine.UCIOptions;
 
 import java.io.File;
@@ -58,7 +58,7 @@ import java.util.TreeMap;
 /**
  * Edit UCI options.
  */
-public class EditOptions extends Activity {
+public class EditOptions extends AppCompatActivity {
     private UCIOptions uciOpts = null;
     private String engineName = "";
     private String workDir = "";
@@ -70,15 +70,17 @@ public class EditOptions extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
-        Util.setFullScreenMode(this, settings);
+        setupBackHandler();
 
         Intent i = getIntent();
-        uciOpts = (UCIOptions) i.getSerializableExtra("org.petero.droidfish.ucioptions");
-        engineName = (String) i.getSerializableExtra("org.petero.droidfish.enginename");
-        workDir = (String) i.getSerializableExtra("org.petero.droidfish.workDir");
-        hasBrowser = (Boolean) i.getSerializableExtra("org.petero.droidfish.localEngine");
+        if (Build.VERSION.SDK_INT >= 33) {
+            uciOpts = i.getSerializableExtra("org.petero.droidfish.ucioptions", UCIOptions.class);
+        } else {
+            uciOpts = (UCIOptions) i.getSerializableExtra("org.petero.droidfish.ucioptions");
+        }
+        engineName = i.getStringExtra("org.petero.droidfish.enginename");
+        workDir = i.getStringExtra("org.petero.droidfish.workDir");
+        hasBrowser = i.getBooleanExtra("org.petero.droidfish.localEngine", false);
         if (uciOpts != null) {
             if (hasBrowser)
                 hasBrowser = FileBrowseUtil.hasBrowser(getPackageManager(), false);
@@ -100,13 +102,13 @@ public class EditOptions extends Activity {
         initUI();
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            sendBackResult();
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+    private void setupBackHandler() {
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                sendBackResult();
+            }
+        });
     }
 
     private void initUI() {
@@ -115,7 +117,12 @@ public class EditOptions extends Activity {
             title = title + ": " + engineName;
         setTitle(title);
 
-        EditoptionsBinding binding = DataBindingUtil.setContentView(this, R.layout.editoptions);
+        setContentView(R.layout.editoptions);
+
+        SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
+        Util.setFullScreenMode(this, settings);
+
+        LinearLayout content = findViewById(R.id.eo_content);
 
         if (uciOpts != null) {
             for (String name : uciOpts.getOptionNames()) {
@@ -123,19 +130,19 @@ public class EditOptions extends Activity {
                 if (o.visible) {
                     View v = getViewForOption(o);
                     if (v != null)
-                        binding.eoContent.addView(v);
+                        content.addView(v);
                 }
             }
         }
 
-        Util.overrideViewAttribs(binding.eoContent);
+        Util.overrideViewAttribs(content);
 
-        binding.eoOk.setOnClickListener(v -> sendBackResult());
-        binding.eoCancel.setOnClickListener(v -> {
+        findViewById(R.id.eo_ok).setOnClickListener(v -> sendBackResult());
+        findViewById(R.id.eo_cancel).setOnClickListener(v -> {
             setResult(RESULT_CANCELED);
             finish();
         });
-        binding.eoReset.setOnClickListener(v -> {
+        findViewById(R.id.eo_reset).setOnClickListener(v -> {
             if (uciOpts != null) {
                 boolean modified = false;
                 for (String name : uciOpts.getOptionNames()) {
@@ -176,22 +183,23 @@ public class EditOptions extends Activity {
     private View getViewForOption(UCIOptions.OptionBase o) {
         switch (o.type) {
         case CHECK: {
-            UciOptionCheckBinding holder = UciOptionCheckBinding.inflate(getLayoutInflater(), null, false);
-            holder.eoValue.setText(o.name);
+            CheckBox cb = (CheckBox) getLayoutInflater().inflate(R.layout.uci_option_check, null);
+            cb.setText(o.name);
             final UCIOptions.CheckOption co = (UCIOptions.CheckOption) o;
-            holder.eoValue.setChecked(co.value);
-            holder.eoValue.setOnCheckedChangeListener((buttonView, isChecked) -> co.set(isChecked));
-            return holder.getRoot();
+            cb.setChecked(co.value);
+            cb.setOnCheckedChangeListener((buttonView, isChecked) -> co.set(isChecked));
+            return cb;
         }
         case SPIN: {
-            UciOptionSpinBinding holder = UciOptionSpinBinding.inflate(getLayoutInflater(), null, false);
+            View root = getLayoutInflater().inflate(R.layout.uci_option_spin, null);
             final UCIOptions.SpinOption so = (UCIOptions.SpinOption) o;
             String labelText = String.format(Locale.US, "%s (%d\u2013%d)", so.name, so.minValue, so.maxValue);
-            holder.eoLabel.setText(labelText);
-            holder.eoValue.setText(so.getStringValue());
+            ((TextView) root.findViewById(R.id.eo_label)).setText(labelText);
+            EditText valueField = root.findViewById(R.id.eo_value);
+            valueField.setText(so.getStringValue());
             if (so.minValue >= 0)
-                holder.eoValue.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-            holder.eoValue.addTextChangedListener(new TextWatcher() {
+                valueField.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            valueField.addTextChangedListener(new TextWatcher() {
                 public void onTextChanged(CharSequence s, int start, int before, int count) { }
                 public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
                 @Override
@@ -208,44 +216,45 @@ public class EditOptions extends Activity {
                     }
                 }
             });
-            return holder.getRoot();
+            return root;
         }
         case COMBO: {
-            UciOptionComboBinding holder = UciOptionComboBinding.inflate(getLayoutInflater(), null, false);
-            holder.eoLabel.setText(o.name);
+            View root = getLayoutInflater().inflate(R.layout.uci_option_combo, null);
+            ((TextView) root.findViewById(R.id.eo_label)).setText(o.name);
             final UCIOptions.ComboOption co = (UCIOptions.ComboOption) o;
+            Spinner spinner = root.findViewById(R.id.eo_value);
             ArrayAdapter<CharSequence> adapter =
                 new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, co.allowedValues);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-            holder.eoValue.setAdapter(adapter);
-            holder.eoValue.setSelection(adapter.getPosition(co.value));
-            holder.eoValue.setOnItemSelectedListener(new OnItemSelectedListener() {
+            spinner.setAdapter(adapter);
+            spinner.setSelection(adapter.getPosition(co.value));
+            spinner.setOnItemSelectedListener(new OnItemSelectedListener() {
                 @Override
                 public void onItemSelected(AdapterView<?> av, View view, int position, long id) {
                     if ((position >= 0) && (position < co.allowedValues.length))
                         co.set(co.allowedValues[position]);
                 }
-
                 public void onNothingSelected(AdapterView<?> arg0) { }
             });
-            return holder.getRoot();
+            return root;
         }
         case BUTTON: {
-            UciOptionButtonBinding holder = UciOptionButtonBinding.inflate(getLayoutInflater(), null, false);
+            ToggleButton tb = (ToggleButton) getLayoutInflater().inflate(R.layout.uci_option_button, null);
             final UCIOptions.ButtonOption bo = (UCIOptions.ButtonOption) o;
             bo.trigger = false;
-            holder.eoLabel.setText(o.name);
-            holder.eoLabel.setTextOn(o.name);
-            holder.eoLabel.setTextOff(o.name);
-            holder.eoLabel.setOnCheckedChangeListener((buttonView, isChecked) -> bo.trigger = isChecked);
-            return holder.getRoot();
+            tb.setText(o.name);
+            tb.setTextOn(o.name);
+            tb.setTextOff(o.name);
+            tb.setOnCheckedChangeListener((buttonView, isChecked) -> bo.trigger = isChecked);
+            return tb;
         }
         case STRING: {
-            UciOptionStringBinding holder = UciOptionStringBinding.inflate(getLayoutInflater(), null, false);
-            holder.eoLabel.setText(String.format("%s ", o.name));
+            View root = getLayoutInflater().inflate(R.layout.uci_option_string, null);
+            ((TextView) root.findViewById(R.id.eo_label)).setText(String.format("%s ", o.name));
             final UCIOptions.StringOption so = (UCIOptions.StringOption) o;
-            holder.eoValue.setText(so.value);
-            holder.eoValue.addTextChangedListener(new TextWatcher() {
+            EditText valueField = root.findViewById(R.id.eo_value);
+            valueField.setText(so.value);
+            valueField.addTextChangedListener(new TextWatcher() {
                 public void onTextChanged(CharSequence s, int start, int before, int count) { }
                 public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
                 @Override
@@ -253,11 +262,12 @@ public class EditOptions extends Activity {
                     so.set(s.toString());
                 }
             });
+            ImageButton browseBtn = root.findViewById(R.id.eo_browse);
             boolean isFileOption = hasBrowser && (o.name.toLowerCase().contains("file") ||
                                                   o.name.toLowerCase().contains("path"));
-            FileBrowseUtil.setBrowseImage(getResources(), holder.eoBrowse, isFileOption);
-            holder.eoBrowse.setOnClickListener(view -> browseFile(so, holder.eoValue));
-            return holder.getRoot();
+            FileBrowseUtil.setBrowseImage(getResources(), browseBtn, isFileOption);
+            browseBtn.setOnClickListener(view -> browseFile(so, valueField));
+            return root;
         }
         default:
             return null;

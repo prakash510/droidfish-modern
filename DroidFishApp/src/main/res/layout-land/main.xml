@@ -11,6 +11,13 @@
         android:layout_height="fill_parent">
 
         <view
+            class="org.petero.droidfish.view.EvalBarView"
+            android:id="@+id/eval_bar"
+            android:layout_width="14dp"
+            android:layout_height="fill_parent"
+            android:visibility="gone" />
+
+        <view
             class="org.petero.droidfish.ChessBoardPlay"
             android:id="@+id/chessboard"
             android:layout_width="fill_parent"

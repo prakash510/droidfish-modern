@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DroidFish</string>
+    <string name="app_name">DroidFish-modern</string>
     <string name="engine_hash_default">64</string>
     <string name="moves_per_session_default">60</string>
     <string name="time_control_default">120000</string>
@@ -102,6 +102,16 @@ If you are running on battery power, it is recommended that you change settings 
     <string name="colortheme_scid_default">Scid Default</string>
     <string name="colortheme_scid_brown">Scid Brown</string>
     <string name="colortheme_scid_green">Scid Green</string>
+    <string name="colortheme_lichess_brown">Lichess Brown</string>
+    <string name="colortheme_lichess_blue">Lichess Blue</string>
+    <string name="colortheme_lichess_green">Lichess Green</string>
+    <string name="colortheme_midnight">Midnight</string>
+    <string name="colortheme_lichess_purple">Lichess Purple</string>
+    <string name="colortheme_lichess_pink">Lichess Pink</string>
+    <string name="colortheme_lichess_ic">Lichess IC</string>
+    <string name="colortheme_lichess_wood">Lichess Wood</string>
+    <string name="colortheme_lichess_canvas">Lichess Canvas</string>
+    <string name="colortheme_lichess_marble">Lichess Marble</string>
     <string name="select_game_mode">Select Game Mode</string>
     <string name="edit_replay_game">Edit/re-play Game</string>
     <string name="analysis_mode">Analysis Mode</string>
@@ -266,7 +276,41 @@ If you are running on battery power, it is recommended that you change settings 
     <string name="option_select_book">Select Opening Book</string>
     <string name="option_manage_engines">Manage Chess Engines</string>
     <string name="option_color_theme">Set Color Theme</string>
+    <string name="option_board_texture">Set Board Style</string>
+    <string name="select_board_texture">Select Board Style</string>
     <string name="option_about">About / Help</string>
+    <string name="option_engine_match">Engine Match</string>
+    <string name="engine_match_title">Engine Match Setup</string>
+    <string name="engine_match_engine1">Engine 1 (White first):</string>
+    <string name="engine_match_engine2">Engine 2 (Black first):</string>
+    <string name="engine_match_time">Time per side (seconds):</string>
+    <string name="engine_match_increment">Increment (seconds):</string>
+    <string name="engine_match_num_games">Number of games:</string>
+    <string name="engine_match_start">Start Match</string>
+    <string name="engine_match_stop">Stop Match</string>
+    <string name="engine_match_running">Match in progress...</string>
+    <string name="engine_match_use_current_pos">Use current position</string>
+    <string name="engine_match_alternate_colors">Alternate colors</string>
+    <string name="engine_match_keep_screen_on">Keep screen ON</string>
+    <string name="engine_match_book">Opening Book:</string>
+    <string name="engine_match_no_book">No book</string>
+    <string name="engine_match_pgn_plies">Max plies (half-moves):</string>
+    <string name="engine_match_pgn_order">Selection order:</string>
+    <string name="engine_match_pgn_sequential">Sequential</string>
+    <string name="engine_match_pgn_random">Random</string>
+    <string name="engine_match_opening_source">Opening Position:</string>
+    <string name="engine_match_from_start">From starting position</string>
+    <string name="engine_match_use_book">Use opening book</string>
+    <string name="engine_match_max_plies">Max plies (half-moves):</string>
+    <string name="engine_match_adjudicate">Adjudicate Game</string>
+    <string name="engine_match_adjudicate_title">Adjudicate Result</string>
+    <string name="engine_match_white_wins">White wins</string>
+    <string name="engine_match_draw">Draw</string>
+    <string name="engine_match_black_wins">Black wins</string>
+    <string name="engine_match_max_moves">Game length (moves):</string>
+    <string name="engine_match_auto_adjudicate">Auto adjudicate game</string>
+    <string name="engine_match_draw_threshold">Draw threshold (cp):</string>
+    <string name="engine_match_resign_threshold">Resign threshold (cp):</string>
     <string name="prefs_playing_options">Playing Options</string>
     <string name="prefs_playerName_title">Player Name</string>
     <string name="prefs_playerName_summary">Default player name in new games</string>
@@ -291,6 +335,10 @@ If you are running on battery power, it is recommended that you change settings 
     <string name="prefs_hints">Hints</string>
     <string name="prefs_showThinking_title">Show Computer Thinking</string>
     <string name="prefs_showThinking_summary">Display computer algorithm information during search</string>
+    <string name="prefs_evalBarHvE_title">Eval Bar (Human vs Engine)</string>
+    <string name="prefs_evalBarHvE_summary">Show evaluation bar when playing against the engine</string>
+    <string name="prefs_evalBarAnalysis_title">Eval Bar (Analysis Mode)</string>
+    <string name="prefs_evalBarAnalysis_summary">Control eval bar and thinking text visibility in analysis mode</string>
     <string name="prefs_whiteBasedScores_title">White-based scores</string>
     <string name="prefs_whiteBasedScores_summary">Positive analysis scores are good for white</string>
     <string name="prefs_bookHints_title">Show Book Hints</string>
@@ -354,7 +402,7 @@ If you are running on battery power, it is recommended that you change settings 
     <string name="prefs_custom_button_3">Custom Button 3</string>
     <string name="prefs_colors_title">Color Settings</string>
     <!-- Color Picker -->
-    <string name="press_color_to_apply">Press on Color to apply</string>    
+    <string name="press_color_to_apply">Press on Color to apply</string>
     <!--  End color Picker -->
     <string name="prefs_colors_summary">Change individual colors</string>
     <string name="prefs_chess_board">Chess Board</string>
@@ -478,38 +526,96 @@ If you are running on battery power, it is recommended that you change settings 
         <item>Chess Cases</item>
         <item>Alfonso</item>
         <item>Alpha</item>
+        <item>Anarcandy</item>
+        <item>Caliente</item>
+        <item>California</item>
+        <item>Cardinal</item>
         <item>Cburnett</item>
+        <item>Celtic</item>
+        <item>Chess7</item>
         <item>Chess Icons</item>
         <item>Chess Monk</item>
+        <item>Chessnut</item>
+        <item>Companion</item>
+        <item>Cooke</item>
+        <item>Dubrovny</item>
+        <item>Fantasy</item>
+        <item>Firi</item>
         <item>Free Staunton</item>
+        <item>Fresca</item>
+        <item>Gioco</item>
+        <item>Governor</item>
+        <item>Horsey</item>
+        <item>IC Pieces</item>
         <item>Kilfiger</item>
+        <item>Kiwen Suwi</item>
+        <item>Kosal</item>
         <item>Leipzig</item>
+        <item>Maestro</item>
         <item>Magnetic</item>
         <item>Maya</item>
         <item>Merida</item>
         <item>Merida New</item>
         <item>Metal Tops</item>
+        <item>MP Chess</item>
         <item>Pirat</item>
+        <item>Pirouetti</item>
+        <item>Pixel</item>
         <item>Regular</item>
+        <item>Reilly Craig</item>
+        <item>Rhosgfx</item>
+        <item>Riohacha</item>
+        <item>Spatial</item>
+        <item>Staunty</item>
+        <item>Tatiana</item>
         <item>Wikimedia</item>
     </string-array>
     <string-array name="viewPieceSet_values">
         <item>chesscases</item>
         <item>alfonso</item>
         <item>alpha</item>
+        <item>anarcandy</item>
+        <item>caliente</item>
+        <item>california</item>
+        <item>cardinal</item>
         <item>cburnett</item>
+        <item>celtic</item>
+        <item>chess7</item>
         <item>chessicons</item>
         <item>chessmonk</item>
+        <item>chessnut</item>
+        <item>companion</item>
+        <item>cooke</item>
+        <item>dubrovny</item>
+        <item>fantasy</item>
+        <item>firi</item>
         <item>freestaunton</item>
+        <item>fresca</item>
+        <item>gioco</item>
+        <item>governor</item>
+        <item>horsey</item>
+        <item>icpieces</item>
         <item>kilfiger</item>
+        <item>kiwen-suwi</item>
+        <item>kosal</item>
         <item>leipzig</item>
+        <item>maestro</item>
         <item>magnetic</item>
         <item>maya</item>
         <item>merida</item>
         <item>merida_new</item>
         <item>metaltops</item>
+        <item>mpchess</item>
         <item>pirat</item>
+        <item>pirouetti</item>
+        <item>pixel</item>
         <item>regular</item>
+        <item>reillycraig</item>
+        <item>rhosgfx</item>
+        <item>riohacha</item>
+        <item>spatial</item>
+        <item>staunty</item>
+        <item>tatiana</item>
         <item>wikimedia</item>
     </string-array>
     <string-array name="engine_hash_texts">
@@ -721,6 +827,18 @@ If you are running on battery power, it is recommended that you change settings 
         <item>6</item>
         <item>7</item>
         <item>8</item>
+    </string-array>
+    <string-array name="evalBarAnalysis_texts">
+        <item>Off</item>
+        <item>Bar Only</item>
+        <item>Text Only</item>
+        <item>Both</item>
+    </string-array>
+    <string-array name="evalBarAnalysis_values">
+        <item>off</item>
+        <item>barOnly</item>
+        <item>textOnly</item>
+        <item>both</item>
     </string-array>
     <string-array name="scroll_sensitivity_texts">
         <item>Off</item>

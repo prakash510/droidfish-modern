@@ -105,12 +105,14 @@ public class ChessBoardPlay extends ChessBoard {
                 if (sq == selectedSquare) {
                     if (toggleSelection)
                         setSelection(-1);
+                    updateLegalMoveTargets();
                     return null;
                 }
                 if (!myColor(p)) {
                     Move m = new Move(selectedSquare, sq, Piece.EMPTY);
                     setSelection(highlightLastMove ? sq : -1);
                     userSelectedSquare = false;
+                    setLegalMoveTargets(null);
                     return m;
                 } else
                     setSelection(sq);
@@ -123,6 +125,7 @@ public class ChessBoardPlay extends ChessBoard {
             if (prevSq == sq) {
                 if (toggleSelection)
                     setSelection(-1);
+                updateLegalMoveTargets();
                 return null;
             }
             ArrayList<Move> moves = new MoveGen().legalMoves(pos);
@@ -138,6 +141,7 @@ public class ChessBoardPlay extends ChessBoard {
             if (matchingMove != null) {
                 setSelection(highlightLastMove ? matchingMove.to : -1);
                 userSelectedSquare = false;
+                setLegalMoveTargets(null);
                 return matchingMove;
             }
             if (!anyMatch) {
@@ -152,7 +156,22 @@ public class ChessBoardPlay extends ChessBoard {
             }
             setSelection(anyMatch ? sq : -1);
         }
+        updateLegalMoveTargets();
         return null;
+    }
+
+    private void updateLegalMoveTargets() {
+        if (selectedSquare == -1) {
+            setLegalMoveTargets(null);
+            return;
+        }
+        ArrayList<Move> allMoves = new MoveGen().legalMoves(pos);
+        ArrayList<Integer> targets = new ArrayList<>();
+        for (Move m : allMoves) {
+            if (m.from == selectedSquare)
+                targets.add(m.to);
+        }
+        setLegalMoveTargets(targets.isEmpty() ? null : targets);
     }
 
     /**

@@ -70,16 +70,18 @@ public class ExternalEngine extends UCIEngineBase {
     @Override
     protected void startProcess() {
         try {
-            File exeDir = new File(context.getFilesDir(), "engine");
+            File exeDir = getExeDir();
             exeDir.mkdir();
             String exePath = copyFile(engineFileName, exeDir);
-            chmod(exePath);
+            File exeFile = new File(exePath);
+            if (!exeFile.canExecute())
+                chmod(exePath);
             cleanUpExeDir(exeDir, exePath);
-            ProcessBuilder pb = new ProcessBuilder(exePath);
-            if (engineWorkDir.canRead() && engineWorkDir.isDirectory())
-                pb.directory(engineWorkDir);
+            File workDir = engineFileName.getParentFile();
+            if (workDir == null || !workDir.canRead() || !workDir.isDirectory())
+                workDir = engineWorkDir;
             synchronized (EngineUtil.nativeLock) {
-                engineProc = pb.start();
+                engineProc = startEngineProcess(exePath, workDir);
             }
             reNice();
 
@@ -161,6 +163,56 @@ public class ExternalEngine extends UCIEngineBase {
         }
     }
 
+    private Process startEngineProcess(String exePath, File workDir) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder(exePath);
+        if (workDir.canRead() && workDir.isDirectory())
+            pb.directory(workDir);
+        try {
+            return pb.start();
+        } catch (IOException e) {
+            if (!e.getMessage().contains("Permission denied"))
+                throw e;
+        }
+        // Direct exec blocked by SELinux. Use linker64 for dynamically-linked binaries.
+        String linker = "/system/bin/linker64";
+        if (new File(linker).exists()) {
+            pb = new ProcessBuilder(linker, exePath);
+            if (workDir.canRead() && workDir.isDirectory())
+                pb.directory(workDir);
+            try {
+                Process p = pb.start();
+                Thread.sleep(50);
+                try {
+                    p.exitValue();
+                    // Exited immediately — likely a static binary that linker64 can't load
+                } catch (IllegalThreadStateException stillRunning) {
+                    return p;
+                }
+            } catch (InterruptedException ignore) {
+            }
+        }
+        // linker64 failed (static binary). Try exec helper as last resort.
+        String execHelper = context.getApplicationInfo().nativeLibraryDir + "/libexec_engine.so";
+        if (new File(execHelper).exists()) {
+            pb = new ProcessBuilder(execHelper, exePath);
+            if (workDir.canRead() && workDir.isDirectory())
+                pb.directory(workDir);
+            try {
+                Process p = pb.start();
+                Thread.sleep(50);
+                try {
+                    p.exitValue();
+                } catch (IllegalThreadStateException stillRunning) {
+                    return p;
+                }
+            } catch (InterruptedException ignore) {
+            }
+        }
+        throw new IOException("Engine file is not executable. " +
+            "Statically-linked engine binaries are not supported on Android 10+ " +
+            "with this app. Please use a dynamically-linked (PIE) build of the engine.");
+    }
+
     /** Try to lower the engine process priority. */
     private void reNice() {
         try {
@@ -189,6 +241,36 @@ public class ExternalEngine extends UCIEngineBase {
 
     private boolean keepExeDirFile(File f) {
         return InternalStockFish.keepExeDirFile(f);
+    }
+
+    /**
+     * Returns a directory where engine executables can be stored and executed.
+     * Tries getFilesDir()/engine first (works on stock AOSP through Android 16).
+     * Falls back to codeCacheDir if getFilesDir() lacks exec permission (some Samsung builds).
+     */
+    protected File getExeDir() {
+        File primary = new File(context.getCodeCacheDir(), "engine");
+        primary.mkdirs();
+        if (isExecAllowed(primary))
+            return primary;
+        File fallback = new File(context.getFilesDir(), "engine");
+        fallback.mkdirs();
+        return fallback;
+    }
+
+    private boolean isExecAllowed(File dir) {
+        File testFile = new File(dir, ".exec_test");
+        try {
+            if (!testFile.exists()) {
+                new FileOutputStream(testFile).close();
+            }
+            EngineUtil.chmod(testFile.getAbsolutePath());
+            return testFile.canExecute();
+        } catch (IOException e) {
+            return false;
+        } finally {
+            testFile.delete();
+        }
     }
 
     private int hashMB = -1;
@@ -295,6 +377,7 @@ public class ExternalEngine extends UCIEngineBase {
         new File(internalSFPath()).delete();
         if (to.exists() && (from.length() == to.length()) && (from.lastModified() == to.lastModified()))
             return to.getAbsolutePath();
+        to.delete();
         try (FileInputStream fis = new FileInputStream(from);
              FileChannel inFC = fis.getChannel();
              FileOutputStream fos = new FileOutputStream(to);
@@ -308,8 +391,14 @@ public class ExternalEngine extends UCIEngineBase {
         return to.getAbsolutePath();
     }
 
+
     private void chmod(String exePath) throws IOException {
         if (!EngineUtil.chmod(exePath))
             throw new IOException("chmod failed");
+        File f = new File(exePath);
+        if (!f.canExecute())
+            throw new IOException("Engine file is not executable. " +
+                "Your device may block execution from app storage. " +
+                "Try using the built-in Stockfish engine instead.");
     }
 }
